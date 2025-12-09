@@ -154,3 +154,5 @@
 ## 🔗 在线示例
 点击查看完整对话演示 (Google AI Studio)：
 [查看示例链接](https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221jIjlwmAg2BbFVZMUCEJdkagZXCVkCJQs%22%5D,%22action%22:%22open%22,%22userId%22:%22110988563807333152761%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing)
+点击查看完整对话演示 (DeepSeek)：
+[查看示例链接](https://chat.deepseek.com/share/4kdcq7vrzck0hro8kh)
