@@ -157,3 +157,6 @@ Google AI Studio：
 
 DeepSeek：
 [查看示例链接](https://chat.deepseek.com/share/4kdcq7vrzck0hro8kh)
+
+Grok：
+[查看示例链接](https://x.com/i/grok/share/N35pLsNappuTC7bcF6PTXvJaj)
