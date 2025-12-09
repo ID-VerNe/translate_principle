@@ -45,4 +45,4 @@
 如果你有更好的 Prompt 技巧或发现了流程中的缺陷，欢迎提交 Issue 或 Pull Request！
 
 ---
-*Created by [ID-VerNe](https://github.com/ID-VerNe)*
+*Created by [VerNe](https://github.com/ID-VerNe)*
