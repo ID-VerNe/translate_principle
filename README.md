@@ -11,7 +11,7 @@
 ### 1. 文章翻译与润色 (Web UI 版)
 > 适用于直接在 ChatGPT / Claude / Gemini 等网页端进行交互式翻译。
 
-👉 **[点击查看：AI 交互式深度翻译手册 (Web UI)](./WebUI.md)**
+👉 **[点击查看：AI 交互式深度翻译手册 (Web UI)](https://github.com/ID-VerNe/translate_principle/blob/main/WebUi.md)**
 
 这套流程通过独特的 **"4+1 步法"** 解决了 AI 翻译常见的“机器味重”、“术语不统一”和“幻觉”问题：
 *   **Step 0**: 全局角色设定 (System Prompt)
