@@ -9,7 +9,7 @@
 ## 📖 核心文档
 
 ### 1. 文章翻译与润色 (Web UI 版)
-> 适用于直接在 ChatGPT / Claude 网页端进行交互式翻译。
+> 适用于直接在 ChatGPT / Claude / Gemini 等网页端进行交互式翻译。
 
 👉 **[点击查看：AI 交互式深度翻译手册 (Web UI)](./WebUI.md)**
 
