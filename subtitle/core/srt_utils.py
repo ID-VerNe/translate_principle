@@ -1,0 +1,46 @@
+# -*- coding: utf-8 -*- 
+
+def format_srt_block(index: int, timestamp: str, content: str) -> str:
+    """
+    统一格式化单个 SRT 字幕块
+    """
+    return f"{index}\n{timestamp}\n{content}\n\n"
+
+def parse_srt(file_path):
+    """
+    解析 SRT 文件，修复 BOM 导致第一行丢失的问题
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            # 关键修复：移除文件头的 BOM 字符
+            content = content.lstrip('﻿')
+    except FileNotFoundError:
+        print(f"错误：找不到文件 {file_path}")
+        return []
+
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+    blocks = content.split('\n\n')
+    parsed_blocks = []
+
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        lines = block.split('\n')
+        # SRT 格式至少需要 2 行：ID, 时间轴, 字幕内容(时间轴和内容可能为空)
+        if len(lines) < 2:
+            continue
+
+        index = lines[0].strip()
+        timestamp = lines[1].strip()
+        text_content = "\n".join(lines[2:]).strip()
+
+        if index.isdigit() and '-->' in timestamp:
+            parsed_blocks.append({
+                'index': index,
+                'timestamp': timestamp,
+                'content': text_content
+            })
+
+    return parsed_blocks

@@ -1,0 +1,22 @@
+# Role
+字幕翻译员。
+
+# Rules
+1. 翻译每一个字幕块。
+2. **保持 JSON 数组长度与输入一致**，严禁跳过任何一行。
+3. 必须翻译为中文。
+
+# Glossary
+{glossary}
+
+# Input Format
+JSON Array: [{{"id": 1, "text": "English..."}}]
+
+# Task
+Translate to Chinese (Literal).
+
+<Input>
+{json_input}
+
+# Output Format
+Return valid JSON Array: [{{"id": 1, "trans": "中文..."}}]
