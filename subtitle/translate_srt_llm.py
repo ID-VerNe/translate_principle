@@ -82,6 +82,22 @@ async def run_translation(args):
     )
     glossary_manager.initialize()
 
+    # --- 0.1 动态处理缓存路径 ---
+    cache_dir = ".cache"
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir, exist_ok=True)
+    
+    input_filename = os.path.basename(args.input_file)
+    file_hash = hashlib.md5(input_filename.encode('utf-8')).hexdigest()
+    
+    glossary_cache_file = getattr(args, 'glossary_cache_file', None)
+    if glossary_cache_file is None:
+        glossary_cache_file = os.path.join(cache_dir, f"glossary_{file_hash}.json")
+        
+    progress_file = getattr(args, 'progress_file', None)
+    if progress_file is None:
+        progress_file = os.path.join(cache_dir, f"progress_{file_hash}.json")
+
     # --- 1. 加载 SRT ---
     blocks = parse_srt(args.input_file)
     if not blocks:
@@ -91,9 +107,9 @@ async def run_translation(args):
 
     # --- 2. 构建当前任务的混合术语表 ---
     current_glossary = {}
-    if os.path.exists(args.glossary_cache_file):
+    if os.path.exists(glossary_cache_file):
         try:
-            with open(args.glossary_cache_file, 'r', encoding='utf-8') as f:
+            with open(glossary_cache_file, 'r', encoding='utf-8') as f:
                 current_glossary = json.load(f)
             logger.info(f"加载任务缓存术语表: {len(current_glossary)} 条")
         except:
@@ -102,19 +118,19 @@ async def run_translation(args):
     if not current_glossary:
         logger.info("开始提取全局术语表...")
         current_glossary = await extract_global_terms(config, blocks)
-        with open(args.glossary_cache_file, 'w', encoding='utf-8') as f:
+        with open(glossary_cache_file, 'w', encoding='utf-8') as f:
             json.dump(current_glossary, f, ensure_ascii=False, indent=2)
-        logger.info(f"术语表已保存至: {args.glossary_cache_file}")
+        logger.info(f"术语表已保存至: {glossary_cache_file}")
 
     # --- 显眼提示用户术语表位置 ---
     print("\n" + "="*60)
     print(f"📋 【当前生效的术语表】")
-    print(f"   路径: {os.path.abspath(args.glossary_cache_file)}")
+    print(f"   路径: {os.path.abspath(glossary_cache_file)}")
     print(f"   提示: 若需人工修正术语，请编辑此文件后重新运行脚本。")
     print("="*60 + "\n")
 
     # --- 3. 恢复进度 ---
-    progress = load_progress(args.progress_file)
+    progress = load_progress(progress_file)
     processed_indices = set(progress.get("processed_indices", []))
     remaining_blocks = [b for b in blocks if b['index'] not in processed_indices]
 
@@ -168,7 +184,7 @@ async def run_translation(args):
                 [f"- {b['original']} -> {b['polished']}" for b in recent_blocks]
             )
 
-            save_checkpoint(args.output_file, args.progress_file, final_blocks, progress, bilingual_output=args.bilingual, last_context=previous_context_str)
+            save_checkpoint(args.output_file, progress_file, final_blocks, progress, bilingual_output=args.bilingual, last_context=previous_context_str)
             pbar.update(1)
             # tqdm.write 可以在不破坏进度条的情况下打印信息
             tqdm.write(f"  ✅ 批次 {i+1} (ID {start_id}-{end_id}) 处理完成。")
@@ -189,15 +205,15 @@ def main():
     parser.add_argument('--glossary-cache-file', type=str, default=None, help='术语缓存')
     
     # --- 运行参数 ---
-    parser.add_argument('--batch-size', type=int, default=8, help='批次大小')
-    parser.add_argument('--max-concurrent', type=int, default=4, help='最大并发请求数')
+    defaults = TranslationConfig()
+    parser.add_argument('--batch-size', type=int, default=defaults.batch_size, help='批次大小')
+    parser.add_argument('--max-concurrent', type=int, default=defaults.max_concurrent_requests, help='最大并发请求数')
 
     parser.add_argument('--bilingual', dest='bilingual', action='store_true', help='开启双语')
     parser.add_argument('--no-bilingual', dest='bilingual', action='store_false', help='仅中文')
     parser.set_defaults(bilingual=True)
 
     # --- API 与模型参数 ---
-    defaults = TranslationConfig()
     parser.add_argument('--api-key', type=str, default=defaults.api_key, help='API Key')
     parser.add_argument('--api-url', type=str, default=defaults.api_url, help='API URL')
     parser.add_argument('--model-name', type=str, default=defaults.model_name, help='模型名称')
@@ -208,24 +224,6 @@ def main():
     parser.add_argument('--temp-polish', type=float, default=defaults.temp_polish, help='润色温度')
 
     args = parser.parse_args()
-
-    # 动态生成术语表缓存路径
-    if args.glossary_cache_file is None:
-        # 1. 确保 .cache 目录存在
-        cache_dir = ".cache"
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir, exist_ok=True)
-        
-        # 2. 计算输入文件名的哈希
-        input_filename = os.path.basename(args.input_file)
-        file_hash = hashlib.md5(input_filename.encode('utf-8')).hexdigest()
-        
-        # 3. 设置缓存文件路径
-        args.glossary_cache_file = os.path.join(cache_dir, f"current_task_glossary_{file_hash}.json")
-        logger.info(f"使用自动生成的术语表缓存: {args.glossary_cache_file}")
-
-    if args.progress_file is None:
-        args.progress_file = args.output_file + '.progress.json'
 
     # 启动异步主逻辑
     asyncio.run(run_translation(args))

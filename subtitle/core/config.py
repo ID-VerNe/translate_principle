@@ -23,6 +23,7 @@ class TranslationConfig:
     # --- 并发控制 ---
     max_concurrent_requests: int = int(os.getenv("MAX_CONCURRENT_REQUESTS", "4"))
     rpm_limit: int = int(os.getenv("RPM_LIMIT", "60"))
+    batch_size: int = int(os.getenv("BATCH_SIZE", "8"))
     
     # --- 容错配置 ---
     max_retries: int = int(os.getenv("MAX_RETRIES", "3"))
@@ -33,9 +34,9 @@ class TranslationConfig:
     glossary_db_path: str = GLOSSARY_DB_PATH
     
     # --- LLM 温度配置 ---
-    temp_terms: float = 0.1
-    temp_literal: float = 0.3
-    temp_polish: float = 0.5
+    temp_terms: float = float(os.getenv("TEMP_TERMS", "0.1"))
+    temp_literal: float = float(os.getenv("TEMP_LITERAL", "0.3"))
+    temp_polish: float = float(os.getenv("TEMP_POLISH", "0.5"))
 
     def __post_init__(self):
         # 确保目录存在

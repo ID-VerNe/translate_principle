@@ -49,9 +49,56 @@ LLM_MODEL=deepseek-chat                                   # 示例模型
 
 ---
 
-## 🚀 完整工作流程 (Workflow)
+## 🚀 推荐：一键自动化处理 (Automation Workflow)
 
-我们提供了一套完整的工具链，建议按照以下步骤操作，以获得最佳体验。
+为了简化操作，我们提供了一个主控脚本 `subtitle/main.py`。它会自动串联起提取、翻译和转换的所有步骤。
+
+**基础用法示例**:
+
+| 输入类型 | 目标格式 | 语言模式 | 运行命令 |
+| :--- | :--- | :--- | :--- |
+| **视频 (MKV)** | **ASS** | 双语 (默认) | `python subtitle/main.py -i video.mkv` |
+| **视频 (MKV)** | **SRT** | 双语 (默认) | `python subtitle/main.py -i video.mkv -o out.srt` |
+| **字幕 (SRT)** | **SRT** | 双语 (默认) | `python subtitle/main.py -i eng.srt -o chi_bi.srt` |
+| **字幕 (SRT)** | **SRT** | **仅中文** | `python subtitle/main.py -i eng.srt -o chi.srt --no-bilingual` |
+| **字幕 (ASS)** | **ASS** | 双语 (默认) | `python subtitle/main.py -i source.ass` |
+| **字幕 (ASS)** | **ASS** | **仅中文** | `python subtitle/main.py -i source.ass --no-bilingual` |
+
+**核心逻辑提示**:
+1. **输入自适应**: 脚本支持 `.mkv` (自动提取)、`.srt` (直接读取) 和 `.ass` (自动预转为 SRT)。
+2. **输出位置**: 
+   - **默认情况下** (即不加 `-o` 参数时)，生成的成品文件将保存在**输入文件所在的同一个文件夹内**，文件名也与原文件相同（仅后缀改为 `.ass` 或 `.srt`）。
+3. **输出智能识别**: 
+   - 如果指定 `-o filename.ass`，则输出带样式的双语字幕。
+   - 如果指定 `-o filename.srt`，则输出纯文本双语字幕。
+   - 如果不指定 `-o`，默认输出 `.ass` 格式（由 `-f` 参数控制默认值）。
+3. **单/双语控制**: 默认输出双语，添加 `--no-bilingual` 参数可仅保留中文。
+
+**配置说明 (.env)**:
+所有的运行参数（API、并发数、批次大小等）现在都可以在 `.env` 文件中统一配置，CLI 仅需指定输入输出文件。
+
+编辑 `.env` 文件：
+```ini
+# API 配置
+LLM_API_KEY=sk-xxxx
+LLM_API_URL=https://api.deepseek.com/v1/chat/completions
+LLM_MODEL_NAME=deepseek-chat
+
+# 运行性能参数
+MAX_CONCURRENT_REQUESTS=4   # 最大并发请求数
+BATCH_SIZE=8                # 每个批次处理的字幕行数
+
+# 翻译风格控制 (温度 0.0-1.0)
+TEMP_TERMS=0.1              # 术语提取：低温度确保准确
+TEMP_LITERAL=0.3            # 直译阶段：适中
+TEMP_POLISH=0.5             # 润色阶段：略高以增加口语化自然度
+```
+
+---
+
+## 🛠️ 分步工作流程 (Step-by-Step Workflow)
+
+如果你需要更精细地控制每一步（例如在翻译前手动修改提取出的 SRT），可以按照以下步骤操作。
 
 ### 第一步：提取与预处理 (Extract & Pre-process)
 
@@ -133,15 +180,31 @@ python subtitle/post-process/02-post_process_ass.py "翻译结果.srt" -o "最�
 *   `literal_trans.prompt`: 负责直译，要求准确。
 *   `review_and_polish.prompt`: 负责润色，控制口语化程度和语气。
 
+## 💡 新手操作贴士 (Beginner Tips)
+
+如果你是第一次在 Windows 命令行中使用此类工具，请务必阅读以下建议：
+
+1. **如何快速复制路径**：
+   在 Windows 文件夹中，按住键盘上的 **Shift 键**，同时**右键点击**视频或字幕文件，选择“**复制为路径 (Copy as path)**”。
+2. **务必使用双引号**：
+   如果你的文件夹名或文件名中包含**空格**（例如 `My Movie S01E01.mkv`），在输入命令时，**必须**用英文双引号把路径包起来，否则会报错：
+   - ❌ 错误：`python subtitle/main.py -i C:\Movies\The Grand Tour.mkv`
+   - ✅ 正确：`python subtitle/main.py -i "C:\Movies\The Grand Tour.mkv"`
+3. **不要手动输入复杂路径**：
+   你可以先输入 `python subtitle/main.py -i `（注意末尾有空格），然后直接把文件从文件夹里**拖拽**进命令行窗口，路径会自动填入。
+
 ---
 
-## ❓ 常见问题
+## ❓ 常见问题 (FAQ)
+
+**Q: 运行命令提示 "找不到文件" 或 "Invalid Argument"？**
+A: 这通常是因为路径中包含空格但没有使用双引号包围。请参考上方的“新手贴士”，确保路径被 `""` 包裹。
 
 **Q: 翻译中断了怎么办？**
-A: 脚本会自动保存进度到 `.progress.json` 文件。直接重新运行相同的命令，脚本会自动从中断的地方继续翻译。
+A: 脚本会自动保存进度到 `.cache/` 目录下的 `.json` 文件中。直接重新运行相同的命令，脚本会自动通过文件哈希识别任务并从中断的地方继续。
 
 **Q: 想要强制重新翻译？**
-A: 删除输出文件 (`.srt`) 和进度文件 (`.progress.json`) 即可。
+A: 删除输出文件 (`.srt`) 以及 `.cache/` 目录下对应的进度文件 (`progress_*.json`) 和术语缓存 (`glossary_*.json`) 即可。
 
 **Q: 用什么模型合适？**
 A: 目前本地测试使用 **GPT-OSS-20B**，在线API测试使用小米 **mimo-v2-flash** 和 谷歌 **Gemini-3-Pro**。其他模型可以自行测试。
