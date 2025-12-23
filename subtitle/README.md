@@ -96,7 +96,7 @@ python translate_srt_llm.py -i "episode_01.srt" -o "episode_01_cn.srt" --no-bili
 ### 第四步：查看结果
 
 1.  **翻译结果**：保存在你指定的输出文件（如 `my_video_cn.srt`）。
-2.  **术语表**：生成的术语表会保存在 `current_task_glossary.json`，你可以检查它以确认 AI 提取的术语是否准确。
+2.  **术语表**：默认保存在 `.cache/` 目录下（如 `.cache/current_task_glossary_xxxx.json`）。脚本启动时会在终端打印具体的**绝对路径**。
 3.  **日志**：查看 `translation.log` 了解详细运行过程。
 
 ---
@@ -106,10 +106,10 @@ python translate_srt_llm.py -i "episode_01.srt" -o "episode_01_cn.srt" --no-bili
 ### 1. 手动修正术语
 如果 AI 提取的术语有误，你可以：
 1.  运行脚本，等待 "Step 1: 构建术语表" 完成。
-2.  脚本会生成 `current_task_glossary.json`。
+2.  观察终端输出，找到 **"【当前生效的术语表】"** 及其下方的文件路径。
 3.  **中断脚本** (Ctrl+C)。
-4.  手动编辑 `current_task_glossary.json`，修正或添加键值对。
-5.  **重新运行命令**，脚本会优先加载现有的 `current_task_glossary.json`，而不会重新提取。
+4.  根据路径找到该 JSON 文件，手动编辑修正或添加键值对。
+5.  **重新运行命令**，脚本会优先加载该缓存文件中的术语，而不会重新提取。
 
 👉 **[进阶：如何构建自己的永久语料库？](glossaries/README.md)**  
 我们提供了一套完整的工具链，帮助你从过往的字幕文件中提取术语，构建属于自己的专业知识库。详情请点击上方链接。

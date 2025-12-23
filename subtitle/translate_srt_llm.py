@@ -5,6 +5,7 @@ import json
 import argparse
 import asyncio
 import logging
+import hashlib
 from typing import List, Dict
 from tqdm import tqdm
 
@@ -105,6 +106,13 @@ async def run_translation(args):
             json.dump(current_glossary, f, ensure_ascii=False, indent=2)
         logger.info(f"术语表已保存至: {args.glossary_cache_file}")
 
+    # --- 显眼提示用户术语表位置 ---
+    print("\n" + "="*60)
+    print(f"📋 【当前生效的术语表】")
+    print(f"   路径: {os.path.abspath(args.glossary_cache_file)}")
+    print(f"   提示: 若需人工修正术语，请编辑此文件后重新运行脚本。")
+    print("="*60 + "\n")
+
     # --- 3. 恢复进度 ---
     progress = load_progress(args.progress_file)
     processed_indices = set(progress.get("processed_indices", []))
@@ -178,7 +186,7 @@ def main():
     parser.add_argument('-i', '--input-file', type=str, default='官方英文.srt', help='输入SRT文件')
     parser.add_argument('-o', '--output-file', type=str, default='官方英文_output.srt', help='输出SRT文件')
     parser.add_argument('--progress-file', type=str, default=None, help='进度文件')
-    parser.add_argument('--glossary-cache-file', type=str, default='current_task_glossary.json', help='术语缓存')
+    parser.add_argument('--glossary-cache-file', type=str, default=None, help='术语缓存')
     
     # --- 运行参数 ---
     parser.add_argument('--batch-size', type=int, default=8, help='批次大小')
@@ -200,6 +208,21 @@ def main():
     parser.add_argument('--temp-polish', type=float, default=defaults.temp_polish, help='润色温度')
 
     args = parser.parse_args()
+
+    # 动态生成术语表缓存路径
+    if args.glossary_cache_file is None:
+        # 1. 确保 .cache 目录存在
+        cache_dir = ".cache"
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir, exist_ok=True)
+        
+        # 2. 计算输入文件名的哈希
+        input_filename = os.path.basename(args.input_file)
+        file_hash = hashlib.md5(input_filename.encode('utf-8')).hexdigest()
+        
+        # 3. 设置缓存文件路径
+        args.glossary_cache_file = os.path.join(cache_dir, f"current_task_glossary_{file_hash}.json")
+        logger.info(f"使用自动生成的术语表缓存: {args.glossary_cache_file}")
 
     if args.progress_file is None:
         args.progress_file = args.output_file + '.progress.json'
