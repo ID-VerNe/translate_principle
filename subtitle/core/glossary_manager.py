@@ -7,32 +7,45 @@ from typing import Dict
 from flashtext import KeywordProcessor
 
 # 导入配置
-from .config import GLOSSARY_DIR, GLOSSARY_DB_PATH
+from .config import GLOSSARY_DIR, GLOSSARY_DB_PATH, LLM_DISCOVERY_DB_PATH, TranslationConfig
 
 class GlossaryManager:
     def __init__(self):
         self.glossary_dir = Path(GLOSSARY_DIR)
         self.db_path = GLOSSARY_DB_PATH
-        # case_sensitive=False 通常更鲁棒，避免 "top gear" 和 "Top Gear" 匹配失败
+        self.discovery_db_path = LLM_DISCOVERY_DB_PATH
+        
+        # 预加载配置以获取开关状态
+        config = TranslationConfig()
+        self.enable_discovery = config.enable_llm_discovery
+        
         self.keyword_processor = KeywordProcessor(case_sensitive=False)
         self.term_mapping: Dict[str, str] = {}
         self._initialized = False
 
     def initialize(self):
         """初始化：建表、增量更新、加载内存"""
-        print(f"初始化语料库管理器...")
-        self._init_db()
+        print(f"初始化语料库管理器 (发现库持久化: {'开启' if self.enable_discovery else '关闭'})...")
         
+        # 1. 初始化精校库
+        self._init_db(self.db_path)
+        
+        # 2. 如果启用，初始化发现库
+        if self.enable_discovery:
+            self._init_db(self.discovery_db_path)
+        
+        # 3. 增量更新精校库 (从 JSON 文件)
         changes = self.incremental_update()
         if changes > 0:
-            print(f"   检测到 {changes} 个语料文件变化，已更新数据库")
+            print(f"   检测到 {changes} 个语料文件变化，已更新精校数据库")
         
+        # 4. 加载到内存
         self._load_to_memory()
         self._initialized = True
-        print(f"语料库加载完毕: 内存中包含 {len(self.term_mapping)} 个历史术语")
+        print(f"语料库加载完毕: 内存中包含 {len(self.term_mapping)} 个合并术语")
 
-    def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
+    def _init_db(self, db_path):
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS terms (
@@ -61,8 +74,8 @@ class GlossaryManager:
         return hash_md5.hexdigest()
 
     def incremental_update(self) -> int:
+        """仅针对精校库的 JSON 文件进行增量扫描"""
         if not self.glossary_dir.exists():
-            print(f"⚠️ 语料库目录不存在: {self.glossary_dir}, 已自动创建")
             self.glossary_dir.mkdir(parents=True, exist_ok=True)
             return 0
             
@@ -73,8 +86,6 @@ class GlossaryManager:
         processed_files = dict(cursor.fetchall())
         
         updated_count = 0
-        
-        # 扫描 JSON 文件
         for file_path in self.glossary_dir.glob("*.json"):
             filename = file_path.name
             current_hash = self._calculate_file_hash(file_path)
@@ -110,32 +121,71 @@ class GlossaryManager:
                 ''', (source, target, category, file_path.name))
 
     def _load_to_memory(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT source_term, target_term FROM terms")
-        rows = cursor.fetchall()
-        
+        """加载逻辑：先发现库，后精校库，确保优先级"""
         self.keyword_processor = KeywordProcessor(case_sensitive=False)
         self.term_mapping = {}
         
+        # 1. 如果启用，加载 LLM 发现库
+        if self.enable_discovery:
+            self._load_from_db(self.discovery_db_path)
+        
+        # 2. 无论如何都加载精校库 (覆盖发现库)
+        self._load_from_db(self.db_path)
+
+    def _load_from_db(self, db_path):
+        if not Path(db_path).exists():
+            return
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT source_term, target_term FROM terms")
+        rows = cursor.fetchall()
         for source, target in rows:
-            # FlashText 提取时，我们希望它返回原文(source)，然后我们去查字典
-            # 也可以直接替换，但为了给 LLM 展示 "原文->译文"，我们需要保留原文键
             self.keyword_processor.add_keyword(source, source)
-            self.term_mapping[source] = target # 这里存的是小写还是原样取决于 FlashText 设置，建议存原样
-            
+            self.term_mapping[source] = target
         conn.close()
 
     def extract_terms(self, text: str) -> Dict[str, str]:
-        """从文本中匹配历史术语"""
+        """从文本中匹配术语"""
         found_sources = self.keyword_processor.extract_keywords(text)
         result = {}
         for source in set(found_sources):
-            # 注意：FlashText 大小写不敏感时返回的名字可能需要去 mapping 里查标准 key
-            # 这里简化处理，假设 mapping 里的 key 覆盖了这种情况
             if source in self.term_mapping:
                 result[source] = self.term_mapping[source]
         return result
+
+    def save_terms(self, terms_dict: Dict[str, str], category: str = "LLM_Discovered"):
+        """保存新发现的术语：尊重开关，且不破坏内存中的主库词条"""
+        if not terms_dict:
+            return
+            
+        # 1. 物理保存 (仅当开启时)
+        if self.enable_discovery:
+            conn = sqlite3.connect(self.discovery_db_path)
+            cursor = conn.cursor()
+            for source, target in terms_dict.items():
+                source = source.strip()
+                target = target.strip()
+                if source and target:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO terms (source_term, target_term, category, source_file, updated_at)
+                        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ''', (source, target, category, "dynamic_cache"))
+            conn.commit()
+            conn.close()
+        
+        # 2. 更新当前内存 (无论是否持久化)
+        for source, target in terms_dict.items():
+            source = source.strip()
+            target = target.strip()
+            if source and target:
+                # 内存更新策略：如果当前词不在主库中，才添加/更新
+                # (这里我们不能简单判断，因为我们合并了两个库。
+                # 但由于我们只想在当前翻译中使用它，只要它不覆盖主库即可)
+                # 其实 FlashText 覆盖也没关系，因为下一次 initialize 还会重置。
+                # 为了稳妥，我们只有当词条不存在时才添加。
+                if source not in self.term_mapping:
+                    self.keyword_processor.add_keyword(source, source)
+                    self.term_mapping[source] = target
 
 # 全局单例
 glossary_manager = GlossaryManager()

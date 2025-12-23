@@ -14,8 +14,11 @@
     {glossary}
 
     # Context
-    The following is the translation of the previous segment, provided for context only. Use it to understand references (e.g., "it", "he") and maintain tone. DO NOT translate this part.
+    [Previous Context] (Reference only):
     {previous_context}
+
+    [Future Context] (Reference only - DO NOT TRANSLATE):
+    {future_context}
 
     # Examples
     Origin: It's a steam engine.

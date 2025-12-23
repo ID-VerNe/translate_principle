@@ -23,44 +23,53 @@ def filter_relevant_glossary(text_content: str, full_glossary: Dict[str, str]) -
 
 async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
     """
-    提取术语（混合模式：历史语料库匹配 + LLM 新术语发现）
+    提取术语（混合模式：历史语料库匹配 + LLM 新术语发现 - 五步循环采样版）
     """
-    print("=== Step 1: 构建术语表 ===")
+    print("=== Step 1: 构建术语表 (五步循环采样) ===")
     
     # 1. 拼接全文
     full_text = "\n".join([b['content'] for b in blocks])
     
-    # 2. 从历史语料库中匹配 (基于 FlashText，速度极快)
+    # 2. 从历史语料库中匹配
     print("  正在检索历史语料库...")
     historical_glossary = glossary_manager.extract_terms(full_text)
     print(f"  📖 匹配到 {len(historical_glossary)} 个历史固定术语")
 
-    # 3. 使用 LLM 发现新术语 (采样处理)
-    print("  正在使用 LLM 发现新术语...")
-    sampled_text = ""
-    # 稍微增加采样密度，每5行采一行，或者取前中后
-    for i in range(0, len(blocks), 5): 
-        sampled_text += blocks[i]['content'] + "\n"
+    # 3. 使用 LLM 发现新术语 (五步循环采样)
+    print("  正在使用 LLM 进行五步深度发现...")
+    all_llm_glossary = {}
     
-    if len(sampled_text) > 3000:
-        sampled_text = sampled_text[:3000]
+    # 分 5 次采样，每次起点不同
+    for pass_idx in range(5):
+        sampled_text = ""
+        # 每次从 pass_idx 开始，每 5 行取 1 行
+        for i in range(pass_idx, len(blocks), 5):
+            sampled_text += blocks[i]['content'] + "\n"
+        
+        # 如果采样文本过长，进行切分处理
+        # 假设单次提取 Prompt 限制在约 4000 字符内
+        MAX_SAMPLE_LEN = 4000
+        text_parts = [sampled_text[i:i+MAX_SAMPLE_LEN] for i in range(0, len(sampled_text), MAX_SAMPLE_LEN)]
+        
+        for part_idx, part_text in enumerate(text_parts):
+            print(f"    - Pass {pass_idx+1}/5, Part {part_idx+1}...")
+            messages = [{"role": "system", "content": PROMPT_TEMPLATES["TERM_EXTRACT"].format(content=part_text)}]
+            
+            result = await call_llm(config, messages, temperature=config.temp_terms)
+            data = clean_and_extract_json(result)
+            if isinstance(data, dict):
+                all_llm_glossary.update(data)
+    
+    print(f"  🤖 LLM 发现了 {len(all_llm_glossary)} 个潜在术语")
 
-    messages = [{"role": "system", "content": PROMPT_TEMPLATES["TERM_EXTRACT"].format(content=sampled_text)}]
-    
-    # 这里的 temperature 低一点，减少幻觉
-    result = await call_llm(config, messages, temperature=config.temp_terms)
-    
-    llm_glossary = {}
-    data = clean_and_extract_json(result)
-    if isinstance(data, dict):
-        llm_glossary = data
-    
-    print(f"  🤖 LLM 发现了 {len(llm_glossary)} 个新术语")
-
-    # 4. 合并术语表
+    # 4. 合并术语表并持久化
     # 策略：历史术语覆盖 LLM 提取的术语 (History is Truth)
-    # 这样可以修正 LLM 可能产生的错误幻觉，保持系列一致性
-    final_glossary = {**llm_glossary, **historical_glossary}
+    final_glossary = {**all_llm_glossary, **historical_glossary}
+    
+    # 将新发现的术语保存到本地数据库，以便下次使用
+    if all_llm_glossary:
+        glossary_manager.save_terms(all_llm_glossary)
+        print(f"  💾 已将 {len(all_llm_glossary)} 个新术语同步至本地语料库数据库")
     
     print(f"  ✅ 最终术语表包含 {len(final_glossary)} 条目")
     return final_glossary
@@ -106,16 +115,15 @@ async def process_literal_stage(batch_blocks: List[Dict], config, glossary: Dict
     return literal_map, glossary_text
 
 
-async def process_polish_stage(batch_blocks: List[Dict], config, literal_map: Dict[str, str], glossary_text: str, previous_context: str = "") -> List[Dict]:
+async def process_polish_stage(batch_blocks: List[Dict], config, literal_map: Dict[str, str], glossary_text: str, previous_context: str = "", future_context: str = "") -> List[Dict]:
     """
-    阶段2：润色（依赖上文，必须串行）
+    阶段2：润色（依赖上下文）
     """
     # --- 2. 润色 (Polish) ---
     # 构建润色输入：包含原文和直译
     polish_input_data = []
     for b in batch_blocks:
         idx = str(b['index'])
-        # 即使直译失败，也把原文放进去，防止断档
         lit_text = literal_map.get(idx, b['content'])
         polish_input_data.append({
             "id": int(idx),
@@ -125,13 +133,15 @@ async def process_polish_stage(batch_blocks: List[Dict], config, literal_map: Di
 
     json_polish_input = json.dumps(polish_input_data, ensure_ascii=False, indent=2)
 
-    # 处理空上下文的情况
-    context_to_send = previous_context if previous_context else "None (Beginning of file, please establish the translation style)."
+    # 处理上下文的情况
+    context_to_send = previous_context if previous_context else "None (Beginning of file)."
+    future_to_send = future_context if future_context else "None (End of file)."
 
     msgs_polish = [{"role": "system", "content": PROMPT_TEMPLATES["REVIEW_AND_POLISH"].format(
         glossary=glossary_text, 
         json_input=json_polish_input,
-        previous_context=context_to_send
+        previous_context=context_to_send,
+        future_context=future_to_send
     )}]
 
     polish_list = []

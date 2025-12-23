@@ -174,14 +174,24 @@ async def run_translation(args):
         literal_map, glossary_text = await literal_tasks[i]
         del literal_tasks[i]
 
-        # C. 执行润色阶段
-        final_blocks = await process_polish_stage(batch, config, literal_map, glossary_text, previous_context=previous_context_str)
+        # C. 准备下文 (Future Context)
+        future_context_str = ""
+        if i + 1 < total_batches:
+            # 取下一个批次的全部原文
+            future_blocks = batches[i+1]
+            future_context_str = "\n".join([f"- {b['content']}" for b in future_blocks])
+
+        # D. 执行润色阶段
+        final_blocks = await process_polish_stage(
+            batch, config, literal_map, glossary_text, 
+            previous_context=previous_context_str,
+            future_context=future_context_str
+        )
         
         if final_blocks:
-            # 更新上下文（保留最近 3 句对照）
-            recent_blocks = final_blocks[-3:]
+            # 更新上文上下文（保留当前批次的全部翻译结果供下一批次参考）
             previous_context_str = "\n".join(
-                [f"- {b['original']} -> {b['polished']}" for b in recent_blocks]
+                [f"- {b['original']} -> {b['polished']}" for b in final_blocks]
             )
 
             save_checkpoint(args.output_file, progress_file, final_blocks, progress, bilingual_output=args.bilingual, last_context=previous_context_str)
