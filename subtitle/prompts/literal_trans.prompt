@@ -19,4 +19,5 @@ Translate to Chinese (Literal).
 {json_input}
 
 # Output Format
-Return valid JSON Array: [{{"id": 1, "trans": "中文..."}}]
+Return valid JSON Array ONLY: [{{"id": 1, "trans": "中文..."}}]
+No chatter. No explanations. Return the array only.
