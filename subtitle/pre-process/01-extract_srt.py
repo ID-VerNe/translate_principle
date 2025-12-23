@@ -139,6 +139,7 @@ def extract_subtitles(mkv_path):
         # 根据编码确定后缀名
         ext = '.srt'
         is_ass = False
+        should_skip = False
         
         if 'S_TEXT/UTF8' in codec:
             ext = '.srt'
@@ -149,6 +150,16 @@ def extract_subtitles(mkv_path):
             ext = '.sup'
         elif 'S_VOBSUB' in codec:
             ext = '.sub'
+        elif 'S_DVBSUB' in codec:
+             print(f" -> [跳过] 轨道 {tid} ({lang}): {codec} 是图形字幕 (DVB Subtitles)，无法转换为文本。")
+             should_skip = True
+        else:
+             # 对于其他未知格式，尝试作为 SRT 提取可能会失败，为了安全起见可以选择跳过，或者尝试
+             print(f" -> [警告] 轨道 {tid} ({lang}): {codec} 格式未知，尝试提取为 .srt 可能失败。")
+             ext = '.srt'
+
+        if should_skip:
+            continue
 
         # 构建输出文件名: 原文件名_TrackID_语言.后缀
         out_filename = f"{base_name}_track{tid}_{lang}{ext}"
