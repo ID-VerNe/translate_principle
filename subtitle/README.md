@@ -79,22 +79,26 @@ LLM_MODEL=deepseek-chat                                   # 示例模型
 
 编辑 `.env` 文件：
 ```ini
-# API 配置
-LLM_API_KEY=sk-xxxx
+# LLM API 配置
+LLM_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
 LLM_API_URL=https://api.deepseek.com/v1/chat/completions
 LLM_MODEL_NAME=deepseek-chat
 
-# 运行性能参数
-MAX_CONCURRENT_REQUESTS=4   # 最大并发请求数
-BATCH_SIZE=8                # 每个批次处理的字幕行数
+# 运行参数
+MAX_CONCURRENT_REQUESTS=4
+BATCH_SIZE=8
+MAX_RETRIES=3
+RETRY_DELAY=2.0
+RPM_LIMIT=100
+
+# 翻译温度 (0.0 - 1.0)
+
+TEMP_TERMS=0.1
+TEMP_LITERAL=0.3
+TEMP_POLISH=0.5
 
 # 语料库自动化
-ENABLE_LLM_DISCOVERY=True   # 是否允许将 LLM 自动提取的新术语保存到本地 (llm_discovery.db)
-
-# 翻译风格控制 (温度 0.0-1.0)
-TEMP_TERMS=0.1              # 术语提取：低温度确保准确
-TEMP_LITERAL=0.3            # 直译阶段：适中
-TEMP_POLISH=0.5             # 润色阶段：略高以增加口语化自然度
+ENABLE_LLM_DISCOVERY=True  # 是否允许加载/保存 LLM 自动发现的术语库 (llm_discovery.db)
 ```
 
 ---

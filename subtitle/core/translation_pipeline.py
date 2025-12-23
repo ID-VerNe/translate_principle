@@ -104,6 +104,9 @@ async def process_literal_stage(batch_blocks: List[Dict], config, glossary: Dict
             break
         else:
             print(f"  [Warn] 直译结果解析失败或为空 (Attempt {attempt+1}/{config.max_retries})，正在重试...")
+            # 超过次数就直接报错
+            if attempt >= config.max_retries - 1:
+                raise Exception("直译结果解析失败或为空，检查网络连接后重启程序")
 
     # 建立直译映射表 {id: text}
     literal_map = {}

@@ -107,16 +107,27 @@ async def run_translation(args):
 
     # --- 2. 构建当前任务的混合术语表 ---
     current_glossary = {}
+    
+    # 首先尝试从任务缓存加载
     if os.path.exists(glossary_cache_file):
         try:
             with open(glossary_cache_file, 'r', encoding='utf-8') as f:
                 current_glossary = json.load(f)
-            logger.info(f"加载任务缓存术语表: {len(current_glossary)} 条")
+            logger.info(f"🚀 发现任务术语缓存，直接加载: {len(current_glossary)} 条")
         except:
             pass
             
+    # 如果没有任务缓存，但有进度文件，说明之前已经跑过发现逻辑，直接通过语料库回填
+    if not current_glossary and os.path.exists(progress_file):
+        full_text = "\n".join([b['content'] for b in blocks])
+        current_glossary = glossary_manager.extract_terms(full_text)
+        logger.info(f"📂 发现任务进度记录，已从语料库中回填术语: {len(current_glossary)} 条")
+        # 存一份缓存，防止下次再跑这段逻辑
+        with open(glossary_cache_file, 'w', encoding='utf-8') as f:
+            json.dump(current_glossary, f, ensure_ascii=False, indent=2)
+
     if not current_glossary:
-        logger.info("开始提取全局术语表...")
+        logger.info("🔍 未发现历史记录，开始执行五步循环采样提取术语表...")
         current_glossary = await extract_global_terms(config, blocks)
         with open(glossary_cache_file, 'w', encoding='utf-8') as f:
             json.dump(current_glossary, f, ensure_ascii=False, indent=2)
