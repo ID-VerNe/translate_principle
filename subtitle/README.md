@@ -217,30 +217,39 @@ python subtitle/post-process/02-post_process_ass.py "翻译结果.srt" -o "最�
 ## ❓ 常见问题 (FAQ)
 
 **Q: 运行命令提示 "找不到文件" 或 "Invalid Argument"？**
+
 A: 这通常是因为路径中包含空格但没有使用双引号包围。请参考上方的“新手贴士”，确保路径被 `""` 包裹。
 
 **Q: 翻译中断了怎么办？**
+
 A: 脚本会自动保存进度到 `.cache/` 目录下的 `.json` 文件中。直接重新运行相同的命令，脚本会自动通过文件哈希识别任务并从中断的地方继续。
 
 **Q: 想要强制重新翻译？**
-A: 删除输出文件 (`.srt/.ass`) 以及 `.cache/` 目录下的对应缓存。如果需要清除 AI 自动生成的术语，请删除 `llm_discovery.db`。精校库 (`glossary_cache.db`) 永远不会被程序修改。
+
+A: 删除输出文件 (`.srt/.ass`) 以及所有 `.cache/` 目录下的对应缓存。如果需要清除 AI 自动生成的术语，请删除 `llm_discovery.db`。精校库 (`glossary_cache.db`) 永远不会被程序修改。
 
 **Q: 用什么模型合适？**
-A: 目前本地测试使用 **GPT-OSS-20B**，在线API测试使用小米 **mimo-v2-flash** 和 谷歌 **Gemini-3-Pro**。其他模型可以自行测试。
+
+A: 目前本地测试使用 **GPT-OSS-20B**，在线API测试使用小米 **Mimo-V2-Flash** 、谷歌 **Gemini-3-Pro** 和零壹万物 **Yi-Lightning**。其他模型可以自行测试。
 
 **Q: 运行 `01-extract_srt.py` 报错 "未找到 MKVToolNix 工具"？**
+
 A: 请确保你已经安装了 MKVToolNix，并且把安装目录（例如 `C:\Program Files\MKVToolNix`）添加到了系统的 **环境变量 Path** 中。添加后需要重启终端才能生效。
 
 **Q: 生成的字幕有乱码怎么办？**
+
 A: 脚本默认使用 UTF-8 编码处理所有文件。如果你的源文件是 GBK 或其他编码，请先将其转换为 UTF-8。Windows 记事本 "另存为" 时选择编码为 UTF-8 即可。
 
 **Q: 如何修改生成的 ASS 字幕样式（字体、颜色、大小）？**
+
 A: `02-post_process_ass.py` 使用 `subtitle/post-process/asshead.txt` 作为样式模板。你可以直接编辑这个 txt 文件，修改 `[V4+ Styles]` 下的参数。建议使用 Aegisub 打开一个生成的 ass 文件，调好样式后，把头部信息复制回 `asshead.txt`。
 
 **Q: API 报错 429 (Too Many Requests) 或超时？**
+
 A: 这是因为并发数过高或 API 提供商限制了速率。
 1. 尝试降低 `--max-concurrent` 参数（例如改为 2 或 1）。
 2. 在 `.env` 或代码中增加重试等待时间。
 
 **Q: 为什么生成的 ASS 字幕有时候中英文没有分行显示？**
+
 A: 脚本是根据“一行中文、一行英文”的逻辑来自动分行的。如果翻译结果中，某一块只有中文或只有英文，或者中英文混在同一行（未换行），脚本可能无法正确识别。请检查中间的翻译结果 SRT 文件，确保 LLM 输出的格式是规范的双语对照格式。
