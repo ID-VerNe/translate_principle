@@ -147,8 +147,8 @@ def srt_to_ass(srt_path, ass_head_path, output_path=None):
             event_groups = process_block_content(block['content'])
             
             for text, style in event_groups:
-                # 构造行，显式转义 \be3
-                dialogue_line = f"Dialogue: 0,{ass_start},{ass_end},{style},,0,0,0,{{\\be3}}{text}\n"
+                # 构造行，显式转义 \be3。注意：Dialogue 行需要 9 个逗号以分隔 10 个字段
+                dialogue_line = f"Dialogue: 0,{ass_start},{ass_end},{style},,0,0,0,,{{\\be3}}{text}\n"
                 f.write(dialogue_line)
                 count += 1
             

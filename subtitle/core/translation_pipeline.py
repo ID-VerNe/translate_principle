@@ -51,6 +51,10 @@ async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
     return final_glossary
 
 async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossary_text: str, use_context: bool, **kwargs) -> List[Dict]:
+    """执行单次 API 请求并进行严格的 ID 校验"""
+    # 提取当前批次期望的所有 ID
+    expected_ids = {int(b['index']) for b in sub_blocks}
+
     if stage == "literal":
         input_data = [{"id": int(b['index']), "text": b['content']} for b in sub_blocks]
         g_text = glossary_text if use_context else "{}"
@@ -59,8 +63,8 @@ async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossar
         )}]
         raw = await call_llm(config, msgs, temperature=config.temp_literal)
         res = clean_and_extract_json(raw)
-        return res if isinstance(res, list) and len(res) == len(sub_blocks) else None
     else:
+        # polish 阶段
         polish_input = []
         for b in sub_blocks:
             lit_text = kwargs.get('literal_map', {}).get(str(b['index']), b['content'])
@@ -78,17 +82,51 @@ async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossar
         )}]
         raw = await call_llm(config, msgs, temperature=config.temp_polish)
         res = clean_and_extract_json(raw)
-        return res if isinstance(res, list) and len(res) == len(sub_blocks) else None
+
+    # --- 严格 ID 校验逻辑 ---
+    if not isinstance(res, list):
+        return None
+
+    # 1. 检查长度
+    if len(res) != len(sub_blocks):
+        logger.warning(f"[{stage.upper()}] 长度不匹配: 期望 {len(sub_blocks)}, 实际 {len(res)}。准备重试...")
+        return None
+
+    # 2. 检查 ID 是否完全匹配
+    returned_ids = set()
+    for item in res:
+        if not isinstance(item, dict) or 'id' not in item:
+            return None
+        try:
+            returned_ids.add(int(item['id']))
+        except (ValueError, TypeError):
+            return None
+
+    if returned_ids != expected_ids:
+        logger.warning(f"[{stage.upper()}] ID 不匹配: 输入 {expected_ids} vs 返回 {returned_ids}。准备重试...")
+        return None
+
+    return res
 
 async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, stage: str, **kwargs) -> List[Dict]:
-    ladder = [8, 6, 4, 2, 1]
+    # 动态构建梯级：
+    # 1. 必须包含当前剩余的总长度 len(blocks)，确保首先尝试全量翻译。
+    # 2. 保留原有的降级梯度 (8, 6, 4, 2, 1) 作为备选。
+    # 3. 排序并去重，确保从大到小尝试。
+    current_max_size = len(blocks)
+    base_ladder = [8, 6, 4, 2, 1]
+
+    # 将当前长度加入梯子，并去重排序
+    full_ladder = sorted(list(set(base_ladder + [current_max_size])), reverse=True)
+
+    ladder = full_ladder
     results = []
-    
+
     idx = 0
     while idx < len(blocks):
         success = False
         remaining = len(blocks) - idx
-        
+
         for size in [s for s in ladder if s <= remaining]:
             chunk = blocks[idx:idx+size]
             # 尝试带上下文
@@ -100,7 +138,7 @@ async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, s
                     success = True
                     break
             if success: break
-            
+
             # 尝试剥离上下文
             res = await _do_single_request(stage, chunk, config, glossary_text, use_context=False, **kwargs)
             if res:
@@ -108,7 +146,7 @@ async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, s
                 idx += size
                 success = True
                 break
-        
+
         if not success:
             bad_block = blocks[idx]
             logger.warning(f"ID {bad_block['index']} 无法翻译，将降级保留原文/直译")
@@ -118,7 +156,7 @@ async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, s
                 lit = kwargs.get('literal_map', {}).get(str(bad_block['index']), bad_block['content'])
                 results.append({"id": int(bad_block['index']), "polished": lit})
             idx += 1
-            
+
     return results
 
 async def process_literal_stage(batch_blocks: List[Dict], config, glossary: Dict[str, str]) -> Tuple[Dict[str, str], str]:
