@@ -10,7 +10,6 @@ from .prompts import get_prompt_templates
 from .glossary_manager import glossary_manager
 
 logger = logging.getLogger(__name__)
-PROMPT_TEMPLATES = get_prompt_templates()
 
 def filter_relevant_glossary(text_content: str, full_glossary: Dict[str, str]) -> Dict[str, str]:
     relevant = {}
@@ -22,6 +21,7 @@ def filter_relevant_glossary(text_content: str, full_glossary: Dict[str, str]) -
 
 async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
     """提取术语（五步循环采样版）"""
+    templates = get_prompt_templates(config.target_lang)
     print("=== Step 1: 构建术语表 (五步循环采样) ===")
     
     all_llm_glossary = {}
@@ -34,7 +34,7 @@ async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
         text_parts = [sampled_text[i:i+MAX_SAMPLE_LEN] for i in range(0, len(sampled_text), MAX_SAMPLE_LEN)]
         
         for part_idx, part_text in enumerate(text_parts):
-            messages = [{"role": "system", "content": PROMPT_TEMPLATES["TERM_EXTRACT"].format(content=part_text)}]
+            messages = [{"role": "system", "content": templates["TERM_EXTRACT"].format(content=part_text)}]
             result = await call_llm(config, messages, temperature=config.temp_terms)
             data = clean_and_extract_json(result)
             if isinstance(data, dict):
@@ -52,13 +52,15 @@ async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
 
 async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossary_text: str, use_context: bool, **kwargs) -> List[Dict]:
     """执行单次 API 请求并进行严格的 ID 校验"""
+    templates = get_prompt_templates(config.target_lang)
     # 提取当前批次期望的所有 ID
     expected_ids = {int(b['index']) for b in sub_blocks}
 
     if stage == "literal":
         input_data = [{"id": int(b['index']), "text": b['content']} for b in sub_blocks]
+        # 如果剥离上下文，直译阶段则不传入术语表
         g_text = glossary_text if use_context else "{}"
-        msgs = [{"role": "system", "content": PROMPT_TEMPLATES["LITERAL_TRANS"].format(
+        msgs = [{"role": "system", "content": templates["LITERAL_TRANS"].format(
             glossary=g_text, json_input=json.dumps(input_data, ensure_ascii=False)
         )}]
         raw = await call_llm(config, msgs, temperature=config.temp_literal)
@@ -74,7 +76,7 @@ async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossar
         f_ctx = kwargs.get('future_context', "None") if use_context else "None"
         g_text = glossary_text if use_context else "{}"
 
-        msgs = [{"role": "system", "content": PROMPT_TEMPLATES["REVIEW_AND_POLISH"].format(
+        msgs = [{"role": "system", "content": templates["REVIEW_AND_POLISH"].format(
             glossary=g_text, 
             json_input=json.dumps(polish_input, ensure_ascii=False),
             previous_context=ctx,
@@ -109,54 +111,71 @@ async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossar
     return res
 
 async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, stage: str, **kwargs) -> List[Dict]:
-    # 动态构建梯级：
-    # 1. 必须包含当前剩余的总长度 len(blocks)，确保首先尝试全量翻译。
-    # 2. 保留原有的降级梯度 (8, 6, 4, 2, 1) 作为备选。
-    # 3. 排序并去重，确保从大到小尝试。
-    current_max_size = len(blocks)
-    base_ladder = [8, 6, 4, 2, 1]
-
-    # 将当前长度加入梯子，并去重排序
-    full_ladder = sorted(list(set(base_ladder + [current_max_size])), reverse=True)
-
-    ladder = full_ladder
+    """梯次拯救引擎：8 -> 6 -> 4 -> 2 -> 1，支持动态上下文维护"""
+    ladder = [8, 6, 4, 2, 1]
     results = []
-
+    
+    # 动态维护上下文语境
+    running_context = kwargs.get('previous_context', "None")
+    
     idx = 0
     while idx < len(blocks):
         success = False
         remaining = len(blocks) - idx
-
+        
         for size in [s for s in ladder if s <= remaining]:
             chunk = blocks[idx:idx+size]
+            
+            # 更新当前尝试的参数，确保使用最新的上下文
+            current_kwargs = {**kwargs, 'previous_context': running_context}
+            
             # 尝试带上下文
             for _ in range(2):
-                res = await _do_single_request(stage, chunk, config, glossary_text, use_context=True, **kwargs)
+                res = await _do_single_request(stage, chunk, config, glossary_text, use_context=True, **current_kwargs)
                 if res:
                     results.extend(res)
+                    # 只有润色阶段需要更新 running_context
+                    if stage == "polish":
+                        # 将刚生成的 翻译/润色 结果追加到 context
+                        new_context_lines = [f"- {item['original']} -> {item['polished']}" for item in res]
+                        if running_context == "None":
+                            running_context = "\n".join(new_context_lines)
+                        else:
+                            running_context += "\n" + "\n".join(new_context_lines)
+                    
                     idx += size
                     success = True
                     break
             if success: break
-
+            
             # 尝试剥离上下文
-            res = await _do_single_request(stage, chunk, config, glossary_text, use_context=False, **kwargs)
+            res = await _do_single_request(stage, chunk, config, glossary_text, use_context=False, **current_kwargs)
             if res:
                 results.extend(res)
+                if stage == "polish":
+                    new_context_lines = [f"- {item['original']} -> {item['polished']}" for item in res]
+                    if running_context == "None":
+                        running_context = "\n".join(new_context_lines)
+                    else:
+                        running_context += "\n" + "\n".join(new_context_lines)
                 idx += size
                 success = True
                 break
-
+        
         if not success:
             bad_block = blocks[idx]
             logger.warning(f"ID {bad_block['index']} 无法翻译，将降级保留原文/直译")
             if stage == "literal":
-                results.append({"id": int(bad_block['index']), "trans": bad_block['content']})
+                res_item = {"id": int(bad_block['index']), "trans": bad_block['content']}
+                results.append(res_item)
             else:
                 lit = kwargs.get('literal_map', {}).get(str(bad_block['index']), bad_block['content'])
-                results.append({"id": int(bad_block['index']), "polished": lit})
+                res_item = {"id": int(bad_block['index']), "polished": lit}
+                results.append(res_item)
+                # 即使失败也把这个“原文”作为后续参考，防止断档
+                running_context += f"\n- {bad_block['content']} -> {res_item['polished']}"
             idx += 1
-
+            
     return results
 
 async def process_literal_stage(batch_blocks: List[Dict], config, glossary: Dict[str, str]) -> Tuple[Dict[str, str], str]:

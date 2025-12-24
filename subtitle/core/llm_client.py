@@ -53,7 +53,7 @@ def get_rate_limiter(config):
 
 def clean_and_extract_json(text: Optional[str]) -> Union[Dict, List]:
     """
-    更鲁棒的 JSON 提取器。
+    更鲁棒的 JSON 提取器：优先寻找 Markdown 代码块，然后结合 json_repair 进行容错处理。
     """
     if text is None:
         return []
@@ -62,33 +62,54 @@ def clean_and_extract_json(text: Optional[str]) -> Union[Dict, List]:
     if not text:
         return []
 
-    # 1. 尝试提取 Markdown 代码块
+    # 1. 优先尝试提取 Markdown 代码块 (这是最准确的)
     code_block_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
     match = re.search(code_block_pattern, text)
     if match:
         json_str = match.group(1).strip()
-    else:
-        # 2. 尝试寻找第一个 [ 或 { 到最后一个 ] 或 }
-        json_body_pattern = r'([\[\{][\s\S]*[\]\}])'
-        match = re.search(json_body_pattern, text)
-        json_str = match.group(1).strip() if match else text
+        try:
+            return json.loads(json_str)
+        except:
+            # 如果代码块里的也不合法，尝试用 repair_json 修复
+            try:
+                repaired = repair_json(json_str)
+                data = json.loads(repaired)
+                if data is not None:
+                    return data
+            except:
+                pass
 
-    # 3. 尝试标准解析
+    # 2. 如果没有代码块，或者代码块解析失败，尝试直接解析全文
     try:
-        return json.loads(json_str)
+        return json.loads(text)
     except:
         pass
 
-    # 4. 容错解析
-    try:
-        repaired = repair_json(json_str)
-        data = json.loads(repaired)
-        if data is not None:
-            return data
-    except:
-        pass
+    # 3. 寻找第一个 [ 或 { 开始的位置，截取到最后并尝试修复
+    # 这一步能有效去除开头的废话（如 "Here is the result:"）
+    start_idx = -1
+    for i, char in enumerate(text):
+        if char in ['{', '[']:
+            start_idx = i
+            break
     
-    return []
+    if start_idx != -1:
+        potential_json = text[start_idx:]
+        try:
+            repaired = repair_json(potential_json)
+            data = json.loads(repaired)
+            if data is not None:
+                return data
+        except:
+            pass
+
+    # 4. 终极保底：对原始文本直接 repair
+    try:
+        repaired = repair_json(text)
+        data = json.loads(repaired)
+        return data if data is not None else []
+    except:
+        return []
 
 async def call_llm(config, messages: List[Dict], temperature: float = 0.5) -> Optional[str]:
     """异步调用 LLM API"""

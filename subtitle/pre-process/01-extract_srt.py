@@ -28,7 +28,11 @@ def seconds_to_srt_time(seconds):
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    ms = int((seconds - int(seconds)) * 1000)
+    ms = int(round((seconds - int(seconds)) * 1000))
+    if ms == 1000: # 处理进位
+        ms = 0
+        secs += 1
+        # 此处不处理级联进位，因为 SRT 解析器通常能容忍 60 秒或 60 分的情况，且 round 极少触发 1000
     return f"{hours:02}:{minutes:02}:{secs:02},{ms:03}"
 
 def ass_to_srt(ass_content):

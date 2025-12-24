@@ -8,7 +8,7 @@ from typing import Dict
 from flashtext import KeywordProcessor
 
 # 导入配置
-from .config import GLOSSARY_DIR, GLOSSARY_DB_PATH, LLM_DISCOVERY_DB_PATH, TranslationConfig
+from .config import GLOSSARY_DIR, GLOSSARY_DB_PATH, LLM_DISCOVERY_DB_PATH, LLM_DISCOVERY_CN_DB_PATH, TranslationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +23,26 @@ class GlossaryManager:
         self.term_mapping: Dict[str, str] = {}
         self._initialized = False
 
-    def initialize(self):
+    def initialize(self, reverse=False):
         """初始化：建表、增量更新、加载内存"""
+        # [核心修改] 根据方向选择数据库路径
+        if reverse:
+            self.discovery_db_path = LLM_DISCOVERY_CN_DB_PATH
+        else:
+            self.discovery_db_path = LLM_DISCOVERY_DB_PATH
+
+        # 1. 初始化精校库
         self._init_db(self.db_path)
+        
+        # 2. 如果启用，初始化发现库
         if self.enable_discovery:
             self._init_db(self.discovery_db_path)
         
         self.incremental_update()
-        self._load_to_memory()
+        self._load_to_memory(reverse=reverse)
         self._initialized = True
-        print(f"✅ 语料库初始化完毕: 内存中包含 {len(self.term_mapping)} 个术语")
+        mode = "中->英 (反向)" if reverse else "英->中 (正向)"
+        print(f"✅ 语料库初始化完毕 [{mode}]: 内存中包含 {len(self.term_mapping)} 个术语")
 
     def _init_db(self, db_path):
         conn = sqlite3.connect(db_path)
@@ -74,8 +84,8 @@ class GlossaryManager:
         processed_files = dict(cursor.fetchall())
         
         updated_count = 0
-        for file_path in self.glossary_dir.glob("*.json"):
-            filename = file_path.name
+        for file_path in self.glossary_dir.rglob("*.json"):
+            filename = str(file_path.relative_to(self.glossary_dir))
             current_hash = self._calculate_file_hash(file_path)
             if filename not in processed_files or processed_files[filename] != current_hash:
                 try:
@@ -107,23 +117,48 @@ class GlossaryManager:
                     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ''', (source, target, category, file_path.name))
 
-    def _load_to_memory(self):
+    def _load_to_memory(self, reverse=False):
         self.keyword_processor = KeywordProcessor(case_sensitive=False)
         self.term_mapping = {}
         if self.enable_discovery:
-            self._load_from_db(self.discovery_db_path)
-        self._load_from_db(self.db_path)
+            self._load_from_db(self.discovery_db_path, reverse=reverse)
+        self._load_from_db(self.db_path, reverse=reverse)
 
-    def _load_from_db(self, db_path):
+    def _load_from_db(self, db_path, reverse=False):
         if not Path(db_path).exists():
             return
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT source_term, target_term FROM terms")
+        cursor.execute("SELECT source_term, target_term, category FROM terms")
         rows = cursor.fetchall()
-        for source, target in rows:
-            self.keyword_processor.add_keyword(source, source)
-            self.term_mapping[source] = target
+        
+        # 反向模式下的黑名单：习语和俚语不适合直接作为词条匹配，防止中译英时产生奇怪映射
+        REVERSE_BLACKLIST = {"Idioms/Colloquialisms", "Slang"}
+
+        for source, target, category in rows:
+            source = source.strip() if source else ""
+            target = target.strip() if target else ""
+            category = category.strip() if category else ""
+            
+            if not source or not target:
+                continue
+
+            if reverse:
+                # 如果是习语类，反向时跳过
+                if category in REVERSE_BLACKLIST:
+                    continue
+                
+                # 处理中文逗号分隔的情况
+                clean_target = target.replace('，', ',')
+                possible_keys = [t.strip() for t in clean_target.split(',')]
+                
+                for key in possible_keys:
+                    if key:
+                        self.keyword_processor.add_keyword(key, key)
+                        self.term_mapping[key] = source
+            else:
+                self.keyword_processor.add_keyword(source, source)
+                self.term_mapping[source] = target
         conn.close()
 
     def extract_terms(self, text: str) -> Dict[str, str]:

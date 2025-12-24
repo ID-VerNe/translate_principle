@@ -6,9 +6,11 @@
 
 ## 🌟 核心优势
 
-*   **全自动流水线**：一键完成“术语提取 -> 直译 -> 润色 -> 样式转换”。
-*   **滑动窗口上下文**：润色阶段参考“上文 + 下文”共 3 个批次的语境，确保翻译不跳戏。
-*   **ASS 特效支持**：生成双语对照、智能分行、带样式的最终版 ASS 字幕。
+*   **全自动流水线**：一键完成“格式转换 -> 术语提取 -> 直译 -> 润色 -> 样式注入”。
+*   **双向翻译支持**：不仅支持英译中，还内置了完善的**中译英**模式（自动切换 Prompt 并反转语料库）。
+*   **智能梯次拯救 (Rescue Mode)**：遇到敏感词拦截（Content Filter）时，系统会自动启动 `8->6->4->2->1` 梯次减量并**自动剥离上下文**重试，确保任务不中断。
+*   **全量批次滑动窗口**：润色阶段参考“上文+下文”共 3 个完整批次的语境，彻底解决指代不明问题。
+*   **物理隔离语料库**：区分精校库与发现库，并针对不同翻译方向使用独立数据库，保护核心资产。
 
 > 👉 **[想要了解这些功能是如何实现的？点击查看实现原理文档](../CLI_Implementation.md)**
 
@@ -57,22 +59,18 @@ LLM_MODEL=deepseek-chat                                   # 示例模型
 
 | 输入类型 | 目标格式 | 语言模式 | 运行命令 |
 | :--- | :--- | :--- | :--- |
-| **视频 (MKV)** | **ASS** | 双语 (默认) | `python subtitle/main.py -i video.mkv` |
-| **视频 (MKV)** | **SRT** | 双语 (默认) | `python subtitle/main.py -i video.mkv -o out.srt` |
-| **字幕 (SRT)** | **SRT** | 双语 (默认) | `python subtitle/main.py -i eng.srt -o chi_bi.srt` |
-| **字幕 (SRT)** | **SRT** | **仅中文** | `python subtitle/main.py -i eng.srt -o chi.srt --no-bilingual` |
-| **字幕 (ASS)** | **ASS** | 双语 (默认) | `python subtitle/main.py -i source.ass` |
-| **字幕 (ASS)** | **ASS** | **仅中文** | `python subtitle/main.py -i source.ass --no-bilingual` |
+| **视频 (MKV)** | **ASS** | 英译中 (双语) | `python subtitle/main.py -i video.mkv` |
+| **视频 (MKV)** | **SRT** | 英译中 (单语) | `python subtitle/main.py -i video.mkv -o out.srt --no-bilingual` |
+| **字幕 (SRT)** | **ASS** | **中译英** (双语) | `python subtitle/main.py -i cn.srt --to-english` |
+| **字幕 (SRT)** | **SRT** | **中译英** (单语) | `python subtitle/main.py -i cn.srt -o en.srt --to-english --no-bilingual` |
+| **字幕 (ASS)** | **ASS** | 英译中 (双语) | `python subtitle/main.py -i source.ass` |
 
 **核心逻辑提示**:
-1. **输入自适应**: 脚本支持 `.mkv` (自动提取)、`.srt` (直接读取) 和 `.ass` (自动预转为 SRT)。
+1. **输入自适应**: 脚本支持 `.mkv` (自动提取)、`.srt` 和 `.ass` (自动预转为中间格式)。
 2. **输出位置**: 
-   - **默认情况下** (即不加 `-o` 参数时)，生成的成品文件将保存在**输入文件所在的同一个文件夹内**，文件名也与原文件相同（仅后缀改为 `.ass` 或 `.srt`）。
-3. **输出智能识别**: 
-   - 如果指定 `-o filename.ass`，则输出带样式的双语字幕。
-   - 如果指定 `-o filename.srt`，则输出纯文本双语字幕。
-   - 如果不指定 `-o`，默认输出 `.ass` 格式（由 `-f` 参数控制默认值）。
-3. **单/双语控制**: 默认输出双语，添加 `--no-bilingual` 参数可仅保留中文。
+   - **默认情况下** (即不加 `-o` 参数时)，生成的成品文件将保存在**输入文件所在的同一个文件夹内**。
+3. **智能识别后缀**: 指定 `-o xxx.srt` 则输出纯文本，指定 `-o xxx.ass` 则自动应用样式。
+4. **语言切换**: 使用 `--to-english` 开启中译英，系统将自动切换模板并反转术语表。
 
 **配置说明 (.env)**:
 所有的运行参数（API、并发数、批次大小等）现在都可以在 `.env` 文件中统一配置，CLI 仅需指定输入输出文件。
@@ -217,16 +215,16 @@ python subtitle/post-process/02-post_process_ass.py "翻译结果.srt" -o "最�
 ## ❓ 常见问题 (FAQ)
 
 **Q: 运行命令提示 "找不到文件" 或 "Invalid Argument"？**
-
 A: 这通常是因为路径中包含空格但没有使用双引号包围。请参考上方的“新手贴士”，确保路径被 `""` 包裹。
 
 **Q: 翻译中断了怎么办？**
+A: 脚本会自动保存进度到 `.cache/` 目录下。直接重新运行，脚本会通过文件哈希识别任务并自动从断点续传。
 
-A: 脚本会自动保存进度到 `.cache/` 目录下的 `.json` 文件中。直接重新运行相同的命令，脚本会自动通过文件哈希识别任务并从中断的地方继续。
+**Q: 遇到敏感词被 API 拦截（Content Filter）怎么办？**
+A: 脚本内置了**拯救逻辑**。它会自动尝试减小批次并剥离上下文语境进行翻译。如果最终依然失败，该行将保留原文/直译，确保整个任务不报错停止。
 
 **Q: 想要强制重新翻译？**
-
-A: 删除输出文件 (`.srt/.ass`) 以及所有 `.cache/` 目录下的对应缓存。如果需要清除 AI 自动生成的术语，请删除 `llm_discovery.db`。精校库 (`glossary_cache.db`) 永远不会被程序修改。
+A: 删除输出文件 (`.srt/.ass`) 以及 `.cache/` 目录下对应的缓存。如果需要彻底清除 AI 发现的术语，请删除 `llm_discovery.db` 或 `llm_discovery_cn.db`。精校库永远不会被程序修改。
 
 **Q: 用什么模型合适？**
 

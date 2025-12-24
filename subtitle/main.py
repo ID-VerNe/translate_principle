@@ -38,10 +38,11 @@ logging.basicConfig(
 logger = logging.getLogger("MainWorkflow")
 
 class TranslationArgs:
-    def __init__(self, input_file, output_file, bilingual, model_name=None, batch_size=None):
+    def __init__(self, input_file, output_file, bilingual, model_name=None, batch_size=None, target_lang="zh"):
         self.input_file = input_file
         self.output_file = output_file
         self.bilingual = bilingual
+        self.target_lang = target_lang
         
         # 加载基础配置 (从 .env 读取)
         config = TranslationConfig()
@@ -67,12 +68,16 @@ async def main():
     parser.add_argument("-f", "--format", choices=["srt", "ass"], default="ass", help="最终输出格式 (默认 ass)")
     
     # 常用覆盖参数 (可选)
+    parser.add_argument("--to-english", action="store_true", help="开启中译英模式")
     parser.add_argument("--bilingual", action="store_true", default=True, help="是否生成双语字幕 (默认开启)")
     parser.add_argument("--no-bilingual", action="store_false", dest="bilingual", help="仅保留中文字幕")
     parser.add_argument("--model", type=str, help="覆盖 .env 中的模型名称")
     parser.add_argument("--batch-size", type=int, help="覆盖 .env 中的批次大小")
     
     args = parser.parse_args()
+
+    # 逻辑判断
+    target_lang = "en" if args.to_english else "zh"
 
     input_path = os.path.abspath(args.input)
     if not os.path.exists(input_path):
@@ -132,10 +137,11 @@ async def main():
         output_file=translated_srt,
         bilingual=args.bilingual,
         model_name=args.model,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        target_lang=target_lang
     )
 
-    logger.info(f"开始翻译流程: {working_srt} -> {translated_srt}")
+    logger.info(f"开始翻译流程: {working_srt} -> {translated_srt} (Target: {target_lang})")
     await run_translation(trans_args)
 
     # 3. 后处理

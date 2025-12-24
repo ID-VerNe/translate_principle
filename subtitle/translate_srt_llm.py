@@ -71,6 +71,7 @@ async def run_translation(args):
     """执行翻译流程的核心逻辑"""
     
     # --- 0. 初始化配置与语料库 ---
+    target_lang = getattr(args, 'target_lang', 'zh')
     config = TranslationConfig(
         api_key=args.api_key,
         api_url=args.api_url,
@@ -78,9 +79,13 @@ async def run_translation(args):
         temp_terms=args.temp_terms,
         temp_literal=args.temp_literal,
         temp_polish=args.temp_polish,
-        max_concurrent_requests=args.max_concurrent
+        max_concurrent_requests=args.max_concurrent,
+        target_lang=target_lang
     )
-    glossary_manager.initialize()
+    
+    # 如果目标是英文，开启反向模式
+    should_reverse = (target_lang == 'en')
+    glossary_manager.initialize(reverse=should_reverse)
 
     # --- 0.1 动态处理缓存路径 ---
     cache_dir = ".cache"
@@ -92,11 +97,11 @@ async def run_translation(args):
     
     glossary_cache_file = getattr(args, 'glossary_cache_file', None)
     if glossary_cache_file is None:
-        glossary_cache_file = os.path.join(cache_dir, f"glossary_{file_hash}.json")
+        glossary_cache_file = os.path.join(cache_dir, f"glossary_{file_hash}_{target_lang}.json")
         
     progress_file = getattr(args, 'progress_file', None)
     if progress_file is None:
-        progress_file = os.path.join(cache_dir, f"progress_{file_hash}.json")
+        progress_file = os.path.join(cache_dir, f"progress_{file_hash}_{target_lang}.json")
 
     # --- 1. 加载 SRT ---
     blocks = parse_srt(args.input_file)

@@ -36,11 +36,19 @@ def parse_srt(file_path):
         timestamp = lines[1].strip()
         text_content = "\n".join(lines[2:]).strip()
 
-        if index.isdigit() and '-->' in timestamp:
-            parsed_blocks.append({
-                'index': index,
-                'timestamp': timestamp,
-                'content': text_content
-            })
+        # 简单的格式检查
+        if not (index.isdigit() or '-->' in timestamp):
+            continue
+            
+        # 丢弃内容为空的字幕块，防止 LLM 产生幻觉
+        if not text_content:
+            logger.warning(f"丢弃空字幕块 ID {index}")
+            continue
+
+        parsed_blocks.append({
+            'index': index,
+            'timestamp': timestamp,
+            'content': text_content
+        })
 
     return parsed_blocks

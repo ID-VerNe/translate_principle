@@ -13,6 +13,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GLOSSARY_DIR = os.path.join(BASE_DIR, 'glossaries')
 GLOSSARY_DB_PATH = os.path.join(BASE_DIR, 'glossary_cache.db')
 LLM_DISCOVERY_DB_PATH = os.path.join(BASE_DIR, 'llm_discovery.db')
+LLM_DISCOVERY_CN_DB_PATH = os.path.join(BASE_DIR, 'llm_discovery_cn.db')
 
 @dataclass
 class TranslationConfig:
@@ -35,6 +36,9 @@ class TranslationConfig:
     glossary_db_path: str = GLOSSARY_DB_PATH
     llm_discovery_db_path: str = LLM_DISCOVERY_DB_PATH
     enable_llm_discovery: bool = os.getenv("ENABLE_LLM_DISCOVERY", "True").lower() == "true"
+    
+    # [新增] 目标语言，默认中文 'zh'，可选英文 'en'
+    target_lang: str = "zh" 
     
     # --- LLM 温度配置 ---
     temp_terms: float = float(os.getenv("TEMP_TERMS", "0.1"))
