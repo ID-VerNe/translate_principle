@@ -108,6 +108,12 @@ async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossar
         logger.warning(f"[{stage.upper()}] ID 不匹配: 输入 {expected_ids} vs 返回 {returned_ids}。准备重试...")
         return None
 
+    # 将原文附带回去，方便后续 context 构建
+    if stage == "polish":
+        id_to_original = {int(b['index']): b['content'] for b in sub_blocks}
+        for item in res:
+            item['original'] = id_to_original.get(int(item['id']), "")
+
     return res
 
 async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, stage: str, **kwargs) -> List[Dict]:
@@ -137,7 +143,7 @@ async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, s
                     # 只有润色阶段需要更新 running_context
                     if stage == "polish":
                         # 将刚生成的 翻译/润色 结果追加到 context
-                        new_context_lines = [f"- {item['original']} -> {item['polished']}" for item in res]
+                        new_context_lines = [f"- {item.get('original', '')} -> {item.get('polished', '')}" for item in res]
                         if running_context == "None":
                             running_context = "\n".join(new_context_lines)
                         else:
@@ -153,7 +159,7 @@ async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, s
             if res:
                 results.extend(res)
                 if stage == "polish":
-                    new_context_lines = [f"- {item['original']} -> {item['polished']}" for item in res]
+                    new_context_lines = [f"- {item.get('original', '')} -> {item.get('polished', '')}" for item in res]
                     if running_context == "None":
                         running_context = "\n".join(new_context_lines)
                     else:
@@ -173,7 +179,11 @@ async def ladder_rescue_engine(blocks: List[Dict], config, glossary_text: str, s
                 res_item = {"id": int(bad_block['index']), "polished": lit}
                 results.append(res_item)
                 # 即使失败也把这个“原文”作为后续参考，防止断档
-                running_context += f"\n- {bad_block['content']} -> {res_item['polished']}"
+                new_line = f"- {bad_block['content']} -> {res_item['polished']}"
+                if running_context == "None":
+                    running_context = new_line
+                else:
+                    running_context += "\n" + new_line
             idx += 1
             
     return results
