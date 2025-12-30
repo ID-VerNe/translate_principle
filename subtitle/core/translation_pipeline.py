@@ -4,6 +4,7 @@ import json
 import asyncio
 import logging
 from typing import List, Dict, Tuple
+from tqdm import tqdm
 
 from .llm_client import call_llm, clean_and_extract_json
 from .prompts import get_prompt_templates
@@ -20,22 +21,48 @@ def filter_relevant_glossary(text_content: str, full_glossary: Dict[str, str]) -
     return relevant
 
 async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
-    """提取术语（五步循环采样版）"""
+    """提取术语（动态循环采样版）"""
     templates = get_prompt_templates(config.target_lang)
-    print("=== Step 1: 构建术语表 (五步循环采样) ===")
+    
+    # 动态计算采样步数：每 100 块对应 1 步，最少 5 步
+    num_passes = max(5, (len(blocks) + 99) // 100)
+    print(f"=== Step 1: 构建术语表 (动态 {num_passes} 步循环采样) ===")
     
     all_llm_glossary = {}
-    for pass_idx in range(5):
+    
+    # 准备所有并发任务
+    tasks = []
+    
+    for pass_idx in range(num_passes):
         sampled_text = ""
-        for i in range(pass_idx, len(blocks), 5):
+        for i in range(pass_idx, len(blocks), num_passes):
             sampled_text += blocks[i]['content'] + "\n"
         
         MAX_SAMPLE_LEN = 4000
         text_parts = [sampled_text[i:i+MAX_SAMPLE_LEN] for i in range(0, len(sampled_text), MAX_SAMPLE_LEN)]
         
-        for part_idx, part_text in enumerate(text_parts):
+        for part_text in text_parts:
             messages = [{"role": "system", "content": templates["TERM_EXTRACT"].format(content=part_text)}]
-            result = await call_llm(config, messages, temperature=config.temp_terms)
+            # 创建协程任务
+            tasks.append(call_llm(config, messages, temperature=config.temp_terms))
+    
+    if tasks:
+        print(f"  🚀 发起 {len(tasks)} 个并发采样请求...")
+        # 使用 tqdm 配合 asyncio.gather 的简单封装或手动分批
+        # 这里直接 gather 所有任务，并用 tqdm 展示
+        results = []
+        pbar = tqdm(total=len(tasks), desc="并发提取术语")
+        
+        # 为了能让 pbar 更新，我们需要包装一下任务
+        async def watched_task(task):
+            res = await task
+            pbar.update(1)
+            return res
+            
+        results = await asyncio.gather(*[watched_task(t) for t in tasks])
+        pbar.close()
+        
+        for result in results:
             data = clean_and_extract_json(result)
             if isinstance(data, dict):
                 all_llm_glossary.update(data)

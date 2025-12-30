@@ -132,7 +132,8 @@ async def run_translation(args):
             json.dump(current_glossary, f, ensure_ascii=False, indent=2)
 
     if not current_glossary:
-        logger.info("🔍 未发现历史记录，开始执行五步循环采样提取术语表...")
+        num_passes = max(5, (len(blocks) + 99) // 100)
+        logger.info(f"🔍 未发现历史记录，开始执行动态 {num_passes} 步循环采样提取术语表...")
         current_glossary = await extract_global_terms(config, blocks)
         with open(glossary_cache_file, 'w', encoding='utf-8') as f:
             json.dump(current_glossary, f, ensure_ascii=False, indent=2)

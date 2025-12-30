@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*- 
+import logging
+
+logger = logging.getLogger(__name__)
 
 def format_srt_block(index: int, timestamp: str, content: str) -> str:
     """
