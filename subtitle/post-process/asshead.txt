@@ -9,16 +9,6 @@ YCbCr Matrix: TV.601
 PlayResX: 1920
 PlayResY: 1080
 
-[Aegisub Project Garbage]
-Audio File: P2.mp4
-Video File: P2.mp4
-Video AR Mode: 4
-Video AR Value: 1.777778
-Video Zoom Percent: 0.500000
-Scroll Position: 892
-Active Line: 895
-Video Position: 46201
-
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: 英文,Arial,49,&H00FFFFFF,&H000019FF,&H00000000,&H00000000,0,0,0,0,97.1591,100,0,0,1,2.49999,0,2,0,0,86,1
