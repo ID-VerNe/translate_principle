@@ -6,9 +6,22 @@
 
 ## ⚡ 快速开始 (傻瓜式一键部署)
 
-如果你不想手动配置复杂的 Python 环境，请按照以下步骤操作：
+如果你不想手动配置复杂的环境，请按照以下步骤操作：
 
-### 1. 自动安装环境
+### 0. 准备工作 (仅 Windows 用户)
+
+**macOS 用户可以跳过此步**，直接进入下一步运行脚本。
+
+对于 Windows 用户，本工具依赖 Python 环境，如果你还没安装，请务必执行此步：
+
+1.  **下载**: 前往 [Python 官网](https://www.python.org/downloads/windows/) 下载 **Python 3.10** 或更高版本 (推荐 3.10.11)。
+2.  **安装 (非常重要)**:
+    *   运行下载的安装包。
+    *   **必须勾选**底部的 `Add Python to PATH` (将 Python 添加到环境变量)。
+    *   选择 `Customize installation` (自定义安装)，确保 `tcl/tk and IDLE` 被勾选 (这是运行图形界面的核心组件)。
+    *   点击 `Install` 完成安装。
+
+### 1. 自动部署环境
 
 *   **Windows 用户**:
     1.  找到项目根目录下的 `setup_project.ps1` 文件。
