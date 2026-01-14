@@ -211,12 +211,31 @@ python subtitle/post-process/02-post_process_ass.py "翻译结果.srt" -o "最�
 
 ## 📚 语料库管理 (Glossary Management)
 
-本项目采用独特的“**物理隔离**”双数据库设计，旨在保护你珍贵的精校语料库：
+本项目采用独特的“**物理隔离**”双数据库设计，并支持**深度上下文元数据**：
 
+### 1. 核心字段说明 (New!)
+现在的术语库支持 JSON 格式的高级定义，LLM 会严格遵守这些元数据：
+- `source_term`: 英文原文。
+- `target_term`: 中文译名。
+- `category`: 类别（如 Named Entities, Idioms）。
+- `description`: **词条背景说明**。解释这个词在特定文化或技术背景下的含义。
+- `instruction`: **翻译指令**。明确要求 AI 如何处理，例如“保留引号”、“使用口语表达”、“需加译者注”等。
+
+示例：
+```json
+{
+  "source_term": "water off a duck's back",
+  "target_term": "浮云",
+  "description": "形容批评或警告不起作用。",
+  "instruction": "使用现代中文网络流行语‘浮云’来捕捉这种‘不在意’的情绪。"
+}
+```
+
+### 2. 双数据库设计
 1. **精校语料库 (`glossary_cache.db`)**：
-   - **数据来源**：自动扫描 `subtitle/glossaries/` 下的所有 `.json` 文件。
-   - **特性**：拥有**最高优先级**。翻译时若与 AI 提取的词条冲突，以主库为准。
-   - **适用场景**：存放你多年积累的、经过人工对齐的专业词汇。
+   - **数据来源**：自动扫描 `subtitle/glossaries/` 以及项目根目录下的 `online_db_api/glossary/`。
+   - **特性**：拥有**最高优先级**。
+   - **适用场景**：存放你多年积累的、带有详细背景说明的专业知识库。
 
 2. **发现库 (`llm_discovery.db`)**：
    - **数据来源**：由 LLM 通过“五步循环采样”在翻译前自动预读全文提取。
