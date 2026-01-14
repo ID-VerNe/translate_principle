@@ -14,6 +14,7 @@
 
     # Glossary
     {glossary}
+    (注意：术语表中可能包含 "description" (词条背景) 和 "instruction" (具体翻译要求)，请务必在润色时将其作为最高优先级的指导原则。)
 
     # Context
     [Previous Context] (Reference only):

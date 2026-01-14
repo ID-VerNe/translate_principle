@@ -9,6 +9,7 @@ Subtitle Translator.
 
 # Glossary
 {glossary}
+(Note: The glossary may contain "description" (context) and "instruction" (translation guidelines). Please refer to and follow them strictly during translation.)
 
 # Input Format
 JSON Array: [{"id": 1, "text": "中文内容..."}]

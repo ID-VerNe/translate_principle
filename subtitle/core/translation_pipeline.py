@@ -12,15 +12,15 @@ from .glossary_manager import glossary_manager
 
 logger = logging.getLogger(__name__)
 
-def filter_relevant_glossary(text_content: str, full_glossary: Dict[str, str]) -> Dict[str, str]:
+def filter_relevant_glossary(text_content: str, full_glossary: Dict[str, dict]) -> Dict[str, dict]:
     relevant = {}
     text_lower = text_content.lower()
-    for src, tgt in full_glossary.items():
+    for src, info in full_glossary.items():
         if src.lower() in text_lower:
-            relevant[src] = tgt
+            relevant[src] = info
     return relevant
 
-async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
+async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, dict]:
     """提取术语（动态循环采样版）"""
     templates = get_prompt_templates(config.target_lang)
     
@@ -48,12 +48,9 @@ async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
     
     if tasks:
         print(f"  🚀 发起 {len(tasks)} 个并发采样请求...")
-        # 使用 tqdm 配合 asyncio.gather 的简单封装或手动分批
-        # 这里直接 gather 所有任务，并用 tqdm 展示
         results = []
         pbar = tqdm(total=len(tasks), desc="并发提取术语")
         
-        # 为了能让 pbar 更新，我们需要包装一下任务
         async def watched_task(task):
             res = await task
             pbar.update(1)
@@ -65,14 +62,24 @@ async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, str]:
         for result in results:
             data = clean_and_extract_json(result)
             if isinstance(data, dict):
-                all_llm_glossary.update(data)
+                # 将 LLM 提取的简单 dict 转换为标准格式
+                for k, v in data.items():
+                    if isinstance(v, str):
+                        all_llm_glossary[k] = {"source": k, "target": v, "category": "LLM_Extracted"}
+                    elif isinstance(v, dict):
+                        all_llm_glossary[k] = v
     
     full_text = "\n".join([b['content'] for b in blocks])
     historical_glossary = glossary_manager.extract_terms(full_text)
+    
+    # 合并时以历史库（精校库）为准
     final_glossary = {**all_llm_glossary, **historical_glossary}
     
     if all_llm_glossary:
-        glossary_manager.save_terms(all_llm_glossary)
+        # save_terms 内部会处理保存逻辑
+        # 注意：这里的 save_terms 也要适配新的格式
+        simple_save = {k: v['target'] if isinstance(v, dict) else v for k, v in all_llm_glossary.items()}
+        glossary_manager.save_terms(simple_save)
     
     print(f"  ✅ 最终术语表包含 {len(final_glossary)} 条目")
     return final_glossary

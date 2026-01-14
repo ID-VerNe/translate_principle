@@ -52,10 +52,20 @@ class GlossaryManager:
                 source_term TEXT PRIMARY KEY,
                 target_term TEXT,
                 category TEXT,
+                description TEXT,
+                instruction TEXT,
                 source_file TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # 增量检查列是否存在 (防止旧数据库报错)
+        cursor.execute("PRAGMA table_info(terms)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'description' not in columns:
+            cursor.execute("ALTER TABLE terms ADD COLUMN description TEXT")
+        if 'instruction' not in columns:
+            cursor.execute("ALTER TABLE terms ADD COLUMN instruction TEXT")
+            
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS file_hashes (
                 filename TEXT PRIMARY KEY,
@@ -74,29 +84,36 @@ class GlossaryManager:
         return hash_md5.hexdigest()
 
     def incremental_update(self) -> int:
-        if not self.glossary_dir.exists():
-            self.glossary_dir.mkdir(parents=True, exist_ok=True)
-            return 0
-            
+        # 定义需要扫描的目录
+        scan_dirs = [
+            self.glossary_dir,
+            Path(self.glossary_dir).parent.parent / "online_db_api" / "glossary"
+        ]
+        
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT filename, file_hash FROM file_hashes")
         processed_files = dict(cursor.fetchall())
         
         updated_count = 0
-        for file_path in self.glossary_dir.rglob("*.json"):
-            filename = str(file_path.relative_to(self.glossary_dir))
-            current_hash = self._calculate_file_hash(file_path)
-            if filename not in processed_files or processed_files[filename] != current_hash:
-                try:
-                    self._process_single_file(file_path, cursor)
-                    cursor.execute('''
-                        INSERT OR REPLACE INTO file_hashes (filename, file_hash, processed_at)
-                        VALUES (?, ?, CURRENT_TIMESTAMP)
-                    ''', (filename, current_hash))
-                    updated_count += 1
-                except Exception as e:
-                    logger.error(f"处理语料文件 {filename} 失败: {e}")
+        for s_dir in scan_dirs:
+            if not s_dir.exists():
+                continue
+                
+            for file_path in s_dir.rglob("*.json"):
+                # 使用绝对路径或相对于 scan_dirs 的路径作为标识，防止重名
+                filename = str(file_path.absolute())
+                current_hash = self._calculate_file_hash(file_path)
+                if filename not in processed_files or processed_files[filename] != current_hash:
+                    try:
+                        self._process_single_file(file_path, cursor)
+                        cursor.execute('''
+                            INSERT OR REPLACE INTO file_hashes (filename, file_hash, processed_at)
+                            VALUES (?, ?, CURRENT_TIMESTAMP)
+                        ''', (filename, current_hash))
+                        updated_count += 1
+                    except Exception as e:
+                        logger.error(f"处理语料文件 {filename} 失败: {e}")
         
         conn.commit()
         conn.close()
@@ -111,15 +128,18 @@ class GlossaryManager:
             source = item.get('source_term', '').strip()
             target = item.get('target_term', '').strip()
             category = item.get('category', 'General')
+            description = item.get('description', '').strip()
+            instruction = item.get('instruction', '').strip()
             if source and target:
                 cursor.execute('''
-                    INSERT OR REPLACE INTO terms (source_term, target_term, category, source_file, updated_at)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ''', (source, target, category, file_path.name))
+                    INSERT OR REPLACE INTO terms (source_term, target_term, category, description, instruction, source_file, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (source, target, category, description, instruction, file_path.name))
 
     def _load_to_memory(self, reverse=False):
         self.keyword_processor = KeywordProcessor(case_sensitive=False)
-        self.term_mapping = {}
+        self.term_mapping = {} # 存储 target_term (或更多信息)
+        self.full_term_data = {} # [新增] 存储完整元数据
         if self.enable_discovery:
             self._load_from_db(self.discovery_db_path, reverse=reverse)
         self._load_from_db(self.db_path, reverse=reverse)
@@ -129,19 +149,29 @@ class GlossaryManager:
             return
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT source_term, target_term, category FROM terms")
+        cursor.execute("SELECT source_term, target_term, category, description, instruction FROM terms")
         rows = cursor.fetchall()
         
         # 反向模式下的黑名单：习语和俚语不适合直接作为词条匹配，防止中译英时产生奇怪映射
         REVERSE_BLACKLIST = {"Idioms/Colloquialisms", "Slang"}
 
-        for source, target, category in rows:
+        for source, target, category, description, instruction in rows:
             source = source.strip() if source else ""
             target = target.strip() if target else ""
             category = category.strip() if category else ""
+            description = description.strip() if description else ""
+            instruction = instruction.strip() if instruction else ""
             
             if not source or not target:
                 continue
+
+            term_info = {
+                "source": source,
+                "target": target,
+                "category": category,
+                "description": description,
+                "instruction": instruction
+            }
 
             if reverse:
                 # 如果是习语类，反向时跳过
@@ -156,23 +186,28 @@ class GlossaryManager:
                     if key:
                         self.keyword_processor.add_keyword(key, key)
                         self.term_mapping[key] = source
+                        self.full_term_data[key] = term_info
             else:
                 self.keyword_processor.add_keyword(source, source)
                 self.term_mapping[source] = target
+                self.full_term_data[source] = term_info
         conn.close()
 
-    def extract_terms(self, text: str) -> Dict[str, str]:
+    def extract_terms(self, text: str) -> Dict[str, dict]:
+        """修改返回值为 dict 的 dict，包含完整信息"""
         found_sources = self.keyword_processor.extract_keywords(text)
         result = {}
         for source in set(found_sources):
-            if source in self.term_mapping:
-                result[source] = self.term_mapping[source]
+            if source in self.full_term_data:
+                result[source] = self.full_term_data[source]
         return result
 
     def save_terms(self, terms_dict: Dict[str, str], category: str = "LLM_Discovered"):
         if not terms_dict:
             return
         if self.enable_discovery:
+            self._init_db(self.discovery_db_path) # 确保发现库结构也是最新的
+            
             main_conn = sqlite3.connect(self.db_path)
             main_cursor = main_conn.cursor()
             main_cursor.execute("SELECT source_term FROM terms")
@@ -203,6 +238,13 @@ class GlossaryManager:
             if s_c and t_c and s_c not in self.term_mapping:
                 self.keyword_processor.add_keyword(s_c, s_c)
                 self.term_mapping[s_c] = t_c
+                self.full_term_data[s_c] = {
+                    "source": s_c,
+                    "target": t_c,
+                    "category": category,
+                    "description": "",
+                    "instruction": ""
+                }
 
 # 全局单例
 glossary_manager = GlossaryManager()

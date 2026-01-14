@@ -10,6 +10,7 @@
 
 # Glossary
 {glossary}
+(注：术语表中若包含 "description" (背景说明) 和 "instruction" (翻译指令)，请在翻译时严格参考并遵守。)
 
 # Input Format
 JSON Array: [{{"id": 1, "text": "English..."}}]
