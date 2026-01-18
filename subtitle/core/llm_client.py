@@ -150,32 +150,21 @@ async def call_llm(config, messages: List[Dict], temperature: float = 0.5, tools
                         raw_resp = await response.text()
                         if response.status != 200:
                             logger.error(f"API 返回状态码 {response.status}: {raw_resp}")
-                            print(f"\n[DEBUG] API 错误响应原文: {raw_resp}")
                             return None 
                         
                         try:
                             data = json.loads(raw_resp)
                         except Exception:
-                            print(f"\n[DEBUG] 响应解析 JSON 失败，原文: {raw_resp}")
                             raise Exception(f"Invalid JSON response: {raw_resp[:500]}")
 
                         if 'choices' not in data or not data['choices']:
-                            print(f"\n[DEBUG] API 响应缺少 choices 字段: {data}")
                             raise Exception("Invalid API Response: missing choices")
                             
                         message = data['choices'][0].get('message', {})
                         
-                        # 调试打印：如果提供了 tools，看看模型实际有没有调用
-                        if tools and "tool_calls" not in message:
-                            print(f"\n[DEBUG] 警告: 设定了强制工具调用，但模型返回了普通文本:")
-                            print(f">>> 内容: {message.get('content')}")
-                        
                         # 优先处理 Tool Calls
                         if "tool_calls" in message and message["tool_calls"]:
-                            args = message["tool_calls"][0]["function"].get("arguments", "")
-                            # 如果需要极致调试，可以开启下面这行
-                            # print(f"\n[DEBUG] Tool Call 参数: {args}")
-                            return args
+                            return message["tool_calls"][0]["function"].get("arguments", "")
 
                         content = message.get('content')
                         refusal = message.get('refusal')

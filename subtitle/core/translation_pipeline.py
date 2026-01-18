@@ -197,30 +197,25 @@ async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossar
 
     # --- 严格 ID 校验逻辑 ---
     if not isinstance(res, list):
-        print(f"\n[DEBUG] {stage.upper()} 阶段返回不是列表。原始返回: {raw}")
         return None
 
     # 1. 检查长度
     if len(res) != len(sub_blocks):
         logger.warning(f"[{stage.upper()}] 长度不匹配: 期望 {len(sub_blocks)}, 实际 {len(res)}。准备重试...")
-        print(f"[DEBUG] 原始数据: {raw}")
         return None
 
     # 2. 检查 ID 是否完全匹配
     returned_ids = set()
     for item in res:
         if not isinstance(item, dict) or 'id' not in item:
-            print(f"[DEBUG] 数据项格式错误: {item}")
             return None
         try:
             returned_ids.add(int(item['id']))
         except (ValueError, TypeError):
-            print(f"[DEBUG] ID 类型错误: {item.get('id')}")
             return None
 
     if returned_ids != expected_ids:
         logger.warning(f"[{stage.upper()}] ID 不匹配: 输入 {expected_ids} vs 返回 {returned_ids}。准备重试...")
-        print(f"[DEBUG] 原始数据: {raw}")
         return None
 
     # 将原文附带回去，方便后续 context 构建
