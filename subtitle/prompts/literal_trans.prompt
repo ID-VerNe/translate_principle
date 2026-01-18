@@ -7,6 +7,7 @@
 3. 必须翻译为中文。
 4. **禁止合并**：严禁将多行字幕合并为一行。输入是几行，输出就是几行。
 5. **ID 对应**：输出 JSON 中的 "id" 必须严格对应输入的 "id"。
+6. **输出约束**：只输出 JSON 数据本身。严禁使用 ```json ... ``` 包裹输出。
 
 # Glossary
 {glossary}
@@ -23,4 +24,4 @@ Translate to Chinese (Literal).
 
 # Output Format
 Return valid JSON Array ONLY: [{{"id": 1, "trans": "中文..."}}]
-No chatter. No explanations. Return the array only.
+No markdown tags. No chatter. No explanations. Return the raw JSON array string.

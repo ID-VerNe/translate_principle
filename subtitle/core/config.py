@@ -30,6 +30,7 @@ class TranslationConfig:
     # --- 容错配置 ---
     max_retries: int = int(os.getenv("MAX_RETRIES", "3"))
     retry_delay: float = float(os.getenv("RETRY_DELAY", "2.0"))
+    max_tokens: int = int(os.getenv("MAX_TOKENS", "4096"))
     
     # --- 语料库配置 ---
     glossary_dir: str = GLOSSARY_DIR

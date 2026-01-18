@@ -42,9 +42,23 @@ async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, dict]:
         text_parts = [sampled_text[i:i+MAX_SAMPLE_LEN] for i in range(0, len(sampled_text), MAX_SAMPLE_LEN)]
         
         for part_text in text_parts:
-            messages = [{"role": "system", "content": templates["TERM_EXTRACT"].format(content=part_text)}]
-            # 创建协程任务
-            tasks.append(call_llm(config, messages, temperature=config.temp_terms))
+            messages = [{"role": "user", "content": templates["TERM_EXTRACT"].format(content=part_text)}]
+            
+            # 定义工具，强制模型以特定 JSON 结构返回
+            tools = [{
+                "type": "function",
+                "function": {
+                    "name": "submit_terms",
+                    "description": "Submit the extracted bilingual terms",
+                    "parameters": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"}
+                    }
+                }
+            }]
+            
+            # 创建协程任务，传入 tools
+            tasks.append(call_llm(config, messages, temperature=config.temp_terms, tools=tools))
     
     if tasks:
         print(f"  🚀 发起 {len(tasks)} 个并发采样请求...")
@@ -94,11 +108,42 @@ async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossar
         input_data = [{"id": int(b['index']), "text": b['content']} for b in sub_blocks]
         # 如果剥离上下文，直译阶段则不传入术语表
         g_text = glossary_text if use_context else "{}"
-        msgs = [{"role": "system", "content": templates["LITERAL_TRANS"].format(
+        msgs = [{"role": "user", "content": templates["LITERAL_TRANS"].format(
             glossary=g_text, json_input=json.dumps(input_data, ensure_ascii=False)
         )}]
-        raw = await call_llm(config, msgs, temperature=config.temp_literal)
-        res = clean_and_extract_json(raw)
+        
+        # 定义直译工具
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "submit_literal_translation",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "translations": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "integer"},
+                                    "trans": {"type": "string"}
+                                },
+                                "required": ["id", "trans"]
+                            }
+                        }
+                    },
+                    "required": ["translations"]
+                }
+            }
+        }]
+        
+        raw = await call_llm(config, msgs, temperature=config.temp_literal, tools=tools)
+        data = clean_and_extract_json(raw)
+        # 如果使用工具调用，结果可能被包裹在 {"translations": [...]} 里面
+        if isinstance(data, dict) and "translations" in data:
+            res = data["translations"]
+        else:
+            res = data
     else:
         # polish 阶段
         polish_input = []
@@ -110,36 +155,72 @@ async def _do_single_request(stage: str, sub_blocks: List[Dict], config, glossar
         f_ctx = kwargs.get('future_context', "None") if use_context else "None"
         g_text = glossary_text if use_context else "{}"
 
-        msgs = [{"role": "system", "content": templates["REVIEW_AND_POLISH"].format(
+        msgs = [{"role": "user", "content": templates["REVIEW_AND_POLISH"].format(
             glossary=g_text, 
             json_input=json.dumps(polish_input, ensure_ascii=False),
             previous_context=ctx,
             future_context=f_ctx
         )}]
-        raw = await call_llm(config, msgs, temperature=config.temp_polish)
-        res = clean_and_extract_json(raw)
+        
+        # 定义润色工具
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "submit_polished_translation",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "results": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "integer"},
+                                    "polished": {"type": "string"}
+                                },
+                                "required": ["id", "polished"]
+                            }
+                        }
+                    },
+                    "required": ["results"]
+                }
+            }
+        }]
+        
+        raw = await call_llm(config, msgs, temperature=config.temp_polish, tools=tools)
+        data = clean_and_extract_json(raw)
+        # 如果使用工具调用，结果可能被包裹在 {"results": [...]} 里面
+        if isinstance(data, dict) and "results" in data:
+            res = data["results"]
+        else:
+            res = data
 
     # --- 严格 ID 校验逻辑 ---
     if not isinstance(res, list):
+        print(f"\n[DEBUG] {stage.upper()} 阶段返回不是列表。原始返回: {raw}")
         return None
 
     # 1. 检查长度
     if len(res) != len(sub_blocks):
         logger.warning(f"[{stage.upper()}] 长度不匹配: 期望 {len(sub_blocks)}, 实际 {len(res)}。准备重试...")
+        print(f"[DEBUG] 原始数据: {raw}")
         return None
 
     # 2. 检查 ID 是否完全匹配
     returned_ids = set()
     for item in res:
         if not isinstance(item, dict) or 'id' not in item:
+            print(f"[DEBUG] 数据项格式错误: {item}")
             return None
         try:
             returned_ids.add(int(item['id']))
         except (ValueError, TypeError):
+            print(f"[DEBUG] ID 类型错误: {item.get('id')}")
             return None
 
     if returned_ids != expected_ids:
         logger.warning(f"[{stage.upper()}] ID 不匹配: 输入 {expected_ids} vs 返回 {returned_ids}。准备重试...")
+        print(f"[DEBUG] 原始数据: {raw}")
         return None
 
     # 将原文附带回去，方便后续 context 构建
