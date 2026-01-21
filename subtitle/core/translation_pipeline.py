@@ -75,13 +75,47 @@ async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, dict]:
         
         for result in results:
             data = clean_and_extract_json(result)
+            
+            # 定义一个内部处理函数来递归提取术语
+            def process_item(k, v):
+                if isinstance(v, str):
+                    all_llm_glossary[k] = {"source": k, "target": v, "category": "LLM_Extracted"}
+                elif isinstance(v, dict):
+                    target = v.get('target') or v.get('translation') or v.get('trans') or v.get('meaning')
+                    if target:
+                        all_llm_glossary[k] = {
+                            "source": v.get('source', k),
+                            "target": target,
+                            "category": v.get('category', "LLM_Extracted")
+                        }
+                    else:
+                        # 如果是普通字典但没有 target，递归处理其内部
+                        for sub_k, sub_v in v.items():
+                            process_item(sub_k, sub_v)
+
             if isinstance(data, dict):
-                # 将 LLM 提取的简单 dict 转换为标准格式
                 for k, v in data.items():
-                    if isinstance(v, str):
-                        all_llm_glossary[k] = {"source": k, "target": v, "category": "LLM_Extracted"}
-                    elif isinstance(v, dict):
-                        all_llm_glossary[k] = v
+                    # 特殊情况：如果 key 是 'terms' 且 value 是列表或字典
+                    if k.lower() in ['terms', 'glossary'] and isinstance(v, (list, dict)):
+                        if isinstance(v, list):
+                            for item in v:
+                                if isinstance(item, dict):
+                                    src = item.get('source') or item.get('term') or item.get('src')
+                                    tgt = item.get('target') or item.get('translation') or item.get('tgt')
+                                    if src and tgt:
+                                        all_llm_glossary[src] = {"source": src, "target": tgt, "category": "LLM_Extracted"}
+                        else:
+                            for sub_k, sub_v in v.items():
+                                process_item(sub_k, sub_v)
+                    else:
+                        process_item(k, v)
+            elif isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict):
+                        src = item.get('source') or item.get('term') or item.get('src')
+                        tgt = item.get('target') or item.get('translation') or item.get('tgt')
+                        if src and tgt:
+                            all_llm_glossary[src] = {"source": src, "target": tgt, "category": "LLM_Extracted"}
     
     full_text = "\n".join([b['content'] for b in blocks])
     historical_glossary = glossary_manager.extract_terms(full_text)
@@ -91,8 +125,8 @@ async def extract_global_terms(config, blocks: List[Dict]) -> Dict[str, dict]:
     
     if all_llm_glossary:
         # save_terms 内部会处理保存逻辑
-        # 注意：这里的 save_terms 也要适配新的格式
-        simple_save = {k: v['target'] if isinstance(v, dict) else v for k, v in all_llm_glossary.items()}
+        # 使用 .get() 安全获取 target，防止 KeyError
+        simple_save = {k: v.get('target', str(v)) if isinstance(v, dict) else v for k, v in all_llm_glossary.items()}
         glossary_manager.save_terms(simple_save)
     
     print(f"  ✅ 最终术语表包含 {len(final_glossary)} 条目")
